@@ -25,7 +25,7 @@ from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
     QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-    QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSlider, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QWidget,
 )
 
@@ -220,26 +220,45 @@ def effective_date(path, session_date):
         return None, False
 
 
-def lap_stats(laps):
+MIN_RUN, MAX_RUN, DEFAULT_RUN = 2, 10, 3
+_run_length = DEFAULT_RUN          # how many consecutive laps "fastest run" means (a global user setting)
+
+
+def run_length():
+    return _run_length
+
+
+def set_run_length(n):
+    """Set the number of consecutive laps used by every 'fastest N' figure (clamped to 2-10)."""
+    global _run_length
+    try:
+        _run_length = max(MIN_RUN, min(MAX_RUN, int(n)))
+    except (TypeError, ValueError):
+        _run_length = DEFAULT_RUN
+
+
+def lap_stats(laps, n=None):
     """laps: list of (lap_ms, bad) in order.
 
-    Returns dict: best (ms, index) and best3 (total_ms, start_index).
+    Returns dict: best (ms, index) and bestn (total_ms, start_index) for the fastest run of `n`
+    consecutive laps (default: the user's setting, 3 unless changed).
     Bad laps are excluded; a bad lap also breaks a run of consecutive laps.
     """
+    n = n or _run_length
     best = None
     for i, (ms, bad) in enumerate(laps):
         if not bad and (best is None or ms < best[0]):
             best = (ms, i)
-    best3 = None
-    for i in range(len(laps) - 2):
-        window = laps[i:i + 3]
+    bestn = None
+    for i in range(len(laps) - n + 1):
+        window = laps[i:i + n]
         if any(bad for _, bad in window):
             continue
         total = sum(ms for ms, _ in window)
-        if best3 is None or total < best3[0]:
-            best3 = (total, i)
+        if bestn is None or total < bestn[0]:
+            bestn = (total, i)
     goods = [ms for ms, bad in laps if not bad]
-    return {"best": best, "best3": best3, "avg": sum(goods) / len(goods) if goods else None,
+    return {"best": best, "bestn": bestn, "avg": sum(goods) / len(goods) if goods else None,
             "good": sum(1 for _, b in laps if not b), "total": len(laps)}
 
 
@@ -548,29 +567,31 @@ def export_csv(lib, video_ids, path):
 
 
 # ----------------------------------------------------------------------------
-# Export the fastest 3 consecutive laps as a video (with lap timer overlay)
+# Export the fastest N consecutive laps as a video (with lap timer overlay)
 # ----------------------------------------------------------------------------
 EXPORT_LEAD_MS = 1000     # footage shown before the first gate
-EXPORT_TAIL_MS = 2000     # footage held after the third lap, with the final total on screen
+EXPORT_TAIL_MS = 2000     # footage held after the last lap, with the final total on screen
 EXPORT_SEEK_MARGIN_MS = 15000   # how far before the clip we seek (the exact cut is made with trim)
 
 
-def best_three_window(lib, video_ids):
-    """Fastest 3 consecutive good laps across the given videos (a window never spans two videos).
+def best_run_window(lib, video_ids):
+    """Fastest run of N consecutive good laps (N = the user's setting) across the given videos; a run never
+    spans two videos.
 
-    -> dict(vid, path, track, date, marks_ms=[m0..m3], lap_ms=[l1,l2,l3], total_ms) or None."""
+    -> dict(vid, path, track, date, marks_ms=[m0..mN], lap_ms=[l1..lN], total_ms) or None."""
+    n = run_length()
     meta = lib.all_meta()
     paths = {v: p for v, p, _ in lib.videos()}
     best = None
     for vid in video_ids:
         marks = lib.marks(vid)
         laps = [(marks[i][1] - marks[i - 1][1], bool(marks[i][2])) for i in range(1, len(marks))]
-        b3 = lap_stats(laps)["best3"]
+        b3 = lap_stats(laps)["bestn"]
         if b3 and (best is None or b3[0] < best["total_ms"]):
             i = b3[1]
-            ms = [marks[i + k][1] for k in range(4)]
+            ms = [marks[i + k][1] for k in range(n + 1)]
             best = {"vid": vid, "path": paths[vid], "track": meta[vid][0], "date": meta[vid][1],
-                    "marks_ms": ms, "lap_ms": [ms[k + 1] - ms[k] for k in range(3)], "total_ms": b3[0]}
+                    "marks_ms": ms, "lap_ms": [ms[k + 1] - ms[k] for k in range(n)], "total_ms": b3[0]}
     return best
 
 
@@ -701,16 +722,17 @@ def _filter_text(text):
 
 
 def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS):
-    """ffmpeg argv that cuts the fastest-3 window from `src` and draws the lap timer overlay.
+    """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
     Returns (argv, clip_ms): the argument list and the length of the output clip."""
     m = win["marks_ms"]
+    n = len(win["lap_ms"])                                 # how many laps the window holds
     lead = min(EXPORT_LEAD_MS, m[0])
     tail = tail_ms
     if info.get("duration_ms"):
-        tail = max(0, min(tail, int(info["duration_ms"] - m[3])))
+        tail = max(0, min(tail, int(info["duration_ms"] - m[n])))
     c0 = m[0] - lead                                       # clip start in the source (ms)
-    clip_ms = (m[3] + tail) - c0
+    clip_ms = (m[n] + tail) - c0
     s = [(x - c0) / 1000.0 for x in m]                     # gate times from the clip start, seconds
     eps = 0.0005                                           # a frame within 0.5 ms of a gate belongs to the next lap
     W, H = info["width"], info["height"]
@@ -734,30 +756,33 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
 
     y_lbl, y_big = mar, mar + round(fs_med * 1.7)
     y_list = y_big + round(fs_big * 1.75)
+    # finished-laps list: keep it clear of the bottom banner however many laps there are
+    line_h = min(fs_med * 1.6, max(fs_small, (H * 0.84 - y_list) / n))
+    fs_list = max(10, min(fs_med, round(line_h / 1.5)))
     parts = []
-    for k in range(3):                                     # lap k+1 running, from its gate to the next gate
+    for k in range(n):                                     # lap k+1 running, from its gate to the next gate
         a = -1 if k == 0 else s[k] - eps                   # (lap 1 also covers the lead-in)
         b = s[k + 1] - eps
         en = f"gte(t,{a:.6f})*lt(t,{b:.6f})"
-        parts.append(dt(f"LAP {k + 1} / 3", mar, y_lbl, fs_med, enable=en))
+        parts.append(dt(f"LAP {k + 1} / {n}", mar, y_lbl, fs_med, enable=en))
         parts.append(dt(running(s[k]), mar, y_big, fs_big, enable=en))
-    en_end = f"gte(t,{s[3] - eps:.6f})"                    # after the last gate: hold lap 3
-    parts.append(dt("LAP 3 / 3", mar, y_lbl, fs_med, enable=en_end))
-    parts.append(dt(fmt(win["lap_ms"][2]), mar, y_big, fs_big, enable=en_end))
-    for k in range(3):                                     # finished laps list, one line appears per lap
-        parts.append(dt(f"LAP {k + 1}   {fmt(win['lap_ms'][k])}", mar, y_list + round(k * fs_med * 1.6), fs_med,
+    en_end = f"gte(t,{s[n] - eps:.6f})"                    # after the last gate: hold the last lap
+    parts.append(dt(f"LAP {n} / {n}", mar, y_lbl, fs_med, enable=en_end))
+    parts.append(dt(fmt(win["lap_ms"][n - 1]), mar, y_big, fs_big, enable=en_end))
+    for k in range(n):                                     # finished laps list, one line appears per lap
+        parts.append(dt(f"LAP {k + 1}   {fmt(win['lap_ms'][k])}", mar, y_list + round(k * line_h), fs_list,
                         enable=f"gte(t,{s[k + 1] - eps:.6f})"))
-    # top right: track name, then the running 3-lap total
+    # top right: track name, then the running total of the N laps
     label = _filter_text(" \u00b7 ".join(x for x in (win.get("track") or "", win.get("date") or "") if x))
     if label:
         parts.append(dt(label, "w-text_w-%d" % mar, y_lbl, fs_small))
     y_tot = y_lbl + round(fs_small * 1.9) if label else y_lbl
-    parts.append(dt("3 LAPS", "w-text_w-%d" % mar, y_tot, fs_med))
+    parts.append(dt(f"{n} LAPS", "w-text_w-%d" % mar, y_tot, fs_med))
     parts.append(dt(running(s[0]), "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big,
-                    enable=f"lt(t,{s[3] - eps:.6f})"))
+                    enable=f"lt(t,{s[n] - eps:.6f})"))
     parts.append(dt(fmt(win["total_ms"]), "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big,
                     color="#FFD54F", enable=en_end))
-    parts.append(dt(f"FASTEST 3 CONSECUTIVE LAPS   {fmt(win['total_ms'])}", "(w-text_w)/2", f"h-text_h-{mar}",
+    parts.append(dt(f"FASTEST {n} CONSECUTIVE LAPS   {fmt(win['total_ms'])}", "(w-text_w)/2", f"h-text_h-{mar}",
                     round(fs_med * 1.25), color="#FFD54F", enable=en_end, box=0.65))
 
     matrix = {"bt470bg": "bt470", "smpte170m": "smpte170m", "bt709": "bt709", "bt2020nc": "bt2020",
@@ -788,7 +813,8 @@ class ExportDialog(QDialog):
     def __init__(self, win, parent=None):
         super().__init__(parent)
         self.win = win
-        self.setWindowTitle("Export fastest 3 laps as video")
+        n = len(win["lap_ms"])
+        self.setWindowTitle(f"Export fastest {n} laps as video")
         self.resize(640, 300)
         self.proc = None
         self.final = None
@@ -801,10 +827,10 @@ class ExportDialog(QDialog):
         laps = "<br>".join(f"Lap {i + 1}: <b>{fmt(ms)}</b>" for i, ms in enumerate(win["lap_ms"]))
         track = win["track"] or "No track"
         summary = QLabel(f"<b>{track}</b> &nbsp;·&nbsp; {vname(win['path'])}<br><br>{laps}<br><br>"
-                         f"Fastest 3 consecutive: <b>{fmt(win['total_ms'])}</b>")
+                         f"Fastest {n} consecutive: <b>{fmt(win['total_ms'])}</b>")
         summary.setTextFormat(Qt.TextFormat.RichText)
         default_dir = Path.home() / "Videos"
-        name = f"{track if win['track'] else Path(vname(win['path'])).stem} fastest 3 {fmt(win['total_ms'])}.mp4"
+        name = f"{track if win['track'] else Path(vname(win['path'])).stem} fastest {n} {fmt(win['total_ms'])}.mp4"
         name = re.sub(r'[\\/:*?"<>|]', "-", name)
         self.path_edit = QLineEdit(str((default_dir if default_dir.is_dir() else Path.home()) / name))
         browse = QPushButton("Browse…")
@@ -827,7 +853,7 @@ class ExportDialog(QDialog):
         except (TypeError, ValueError):
             tail_s = EXPORT_TAIL_MS / 1000
         self.tail_spin.setValue(tail_s)
-        self.tail_spin.setToolTip("Footage kept after the third lap, with the final total on screen")
+        self.tail_spin.setToolTip("Footage kept after the last lap, with the final total on screen")
         self.go = QPushButton("Export")
         self.go.setDefault(True)
         self.go.clicked.connect(self.start)
@@ -950,7 +976,7 @@ class ExportDialog(QDialog):
 
 
 class LapChart(QWidget):
-    """Bar chart of lap times: bad laps grey, fastest lap green, best-3 run outlined."""
+    """Bar chart of lap times: bad laps grey, fastest lap green, fastest run outlined."""
     def __init__(self, laps, title="", parent=None):
         super().__init__(parent)
         self.laps, self.title = laps, title
@@ -990,10 +1016,10 @@ class LapChart(QWidget):
         n = len(self.laps)
         slot = area.width() / n
         bw = min(slot * 0.7, 60)
-        best = self.stats["best"]; b3 = self.stats["best3"]
+        best = self.stats["best"]; b3 = self.stats["bestn"]
         if b3:
             i = b3[1]
-            r = QRectF(area.left() + i * slot + 2, area.top(), slot * 3 - 4, area.height())
+            r = QRectF(area.left() + i * slot + 2, area.top(), slot * run_length() - 4, area.height())
             c = QColor("#1976d2"); c.setAlpha(35)
             p.fillRect(r, c); p.setPen(QPen(QColor("#1976d2"), 1, Qt.PenStyle.DashLine)); p.drawRect(r)
         for i, (ms, bad) in enumerate(self.laps):
@@ -1008,7 +1034,7 @@ class LapChart(QWidget):
             p.drawText(QRectF(x - 10, area.bottom() + 4, bw + 20, 16), Qt.AlignmentFlag.AlignCenter, str(i + 1))
         p.setPen(fg)
         p.drawText(QRectF(L, self.height() - 20, area.width(), 18), Qt.AlignmentFlag.AlignCenter,
-                   "Lap   ·   green = fastest   grey = bad   dashed blue = fastest 3 consecutive")
+                   f"Lap   ·   green = fastest   grey = bad   dashed blue = fastest {run_length()} consecutive")
 
     def mouseMoveEvent(self, e):
         for r, tip in self._bars:
@@ -1031,7 +1057,7 @@ class ProgressChart(QWidget):
     def __init__(self, points, title="Progress across library (per video)", parent=None):
         super().__init__(parent)
         self.title = title
-        # points: [(label, tooltip_name, best_ms|None, best3_avg_ms|None)]
+        # points: [(label, tooltip_name, best_ms|None, bestn_avg_ms|None)]
         self.points = points
         self.setMinimumSize(640, 340)
         self.setMouseTracking(True)
@@ -1066,7 +1092,7 @@ class ProgressChart(QWidget):
             p.setPen(QPen(faint, 1)); p.drawLine(int(area.left()), int(y(v)), int(area.right()), int(y(v)))
             p.setPen(fg)
             p.drawText(QRectF(0, y(v) - 9, L - 6, 18), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, fmt(v))
-        series = [(2, QColor("#2e7d32"), "Fastest lap"), (3, QColor("#1976d2"), "Best 3 consecutive (avg per lap)")]
+        series = [(2, QColor("#2e7d32"), "Fastest lap"), (3, QColor("#1976d2"), f"Best {run_length()} consecutive (avg per lap)")]
         overall = {idx: min((pt[idx] for pt in self.points if pt[idx] is not None), default=None) for idx, _, _ in series}
         for idx, col, _ in series:
             pts = [(i, pt[idx]) for i, pt in enumerate(self.points) if pt[idx] is not None]
@@ -1133,7 +1159,7 @@ class ProgressDialog(QDialog):
         # oldest first; videos with no known date sort last, by name
         rows.sort(key=lambda r: (r[0] is None, r[0] or datetime.min.date(), r[1].lower()))
         points = [(d.isoformat() if d else "?", vname(path),
-                   s["best"][0], s["best3"][0] / 3 if s["best3"] else None) for d, path, s in rows]
+                   s["best"][0], s["bestn"][0] / run_length() if s["bestn"] else None) for d, path, s in rows]
         lay = QVBoxLayout(self)
         lay.addWidget(ProgressChart(points, f"Progress - {track_title(track)}"))
         note = QLabel("Videos are ordered by session date (set manually, else file date). Hover a point for the "
@@ -1305,14 +1331,14 @@ class StatsDialog(QDialog):
 
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["Video", "Track", "Session date", "Laps (good/total)",
-                                              "Fastest lap", "Fastest 3 laps", "Avg good lap"])
+                                              "Fastest lap", f"Fastest {run_length()} laps", "Avg good lap"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         lay.addWidget(self.table, 3)
 
         lay.addWidget(QLabel("<b>By track</b> (all videos, ignoring the filter above)"))
         self.by_track = QTableWidget(0, 6)
         self.by_track.setHorizontalHeaderLabels(["Track", "Videos", "Laps (good/total)", "Fastest lap",
-                                                 "Fastest 3 laps", "Avg good lap"])
+                                                 f"Fastest {run_length()} laps", "Avg good lap"])
         self.by_track.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         lay.addWidget(self.by_track, 2)
         for t in (self.table, self.by_track):
@@ -1323,7 +1349,7 @@ class StatsDialog(QDialog):
         prog.clicked.connect(lambda: ProgressDialog(lib, self.combo.currentData(), self).exec())
         exp = QPushButton("Export CSV (this track)…")
         exp.clicked.connect(self.export_selection)
-        vid_btn = QPushButton("🎬 Export fastest 3 video (this track)…")
+        vid_btn = QPushButton(f"🎬 Export fastest {run_length()} video (this track)…")
         vid_btn.clicked.connect(self.export_video)
         row = QHBoxLayout(); row.addWidget(prog); row.addWidget(exp)
         lay.addLayout(row)
@@ -1333,7 +1359,7 @@ class StatsDialog(QDialog):
     @staticmethod
     def summarise(entries):
         """entries: [(name, laps_list)] -> aggregate stats across those videos."""
-        best = best3 = None
+        best = bestn = None
         good = total = 0
         goods = []
         for name, laps in entries:
@@ -1342,9 +1368,9 @@ class StatsDialog(QDialog):
             goods += [ms for ms, bad in laps if not bad]
             if s["best"] and (best is None or s["best"][0] < best[0]):
                 best = (s["best"][0], name)
-            if s["best3"] and (best3 is None or s["best3"][0] < best3[0]):
-                best3 = (s["best3"][0], name)
-        return {"best": best, "best3": best3, "good": good, "total": total,
+            if s["bestn"] and (bestn is None or s["bestn"][0] < bestn[0]):
+                bestn = (s["bestn"][0], name)
+        return {"best": best, "bestn": bestn, "good": good, "total": total,
                 "avg": sum(goods) / len(goods) if goods else None}
 
     def rebuild(self):
@@ -1372,8 +1398,8 @@ class StatsDialog(QDialog):
             f"<h3>{track_title(track)}</h3>"
             f"<h3>Fastest lap: {fmt(agg['best'][0]) if agg['best'] else '--'}"
             f"{' &nbsp;(' + agg['best'][1] + ')' if agg['best'] else ''}<br>"
-            f"Fastest 3 consecutive laps: {fmt(agg['best3'][0]) if agg['best3'] else '--'}"
-            f"{' &nbsp;(' + agg['best3'][1] + ')' if agg['best3'] else ''}</h3>")
+            f"Fastest {run_length()} consecutive laps: {fmt(agg['bestn'][0]) if agg['bestn'] else '--'}"
+            f"{' &nbsp;(' + agg['bestn'][1] + ')' if agg['bestn'] else ''}</h3>")
 
         self.table.setRowCount(len(rows))
         for r, (d, name, t, manual, laps) in enumerate(rows):
@@ -1381,7 +1407,7 @@ class StatsDialog(QDialog):
             ds = (d.isoformat() + ("" if manual else " (file)")) if d else "--"
             vals = [name, t or "--", ds, f"{s['good']}/{s['total']}",
                     fmt(s["best"][0]) if s["best"] else "--",
-                    fmt(s["best3"][0]) if s["best3"] else "--",
+                    fmt(s["bestn"][0]) if s["bestn"] else "--",
                     fmt(s["avg"]) if s["avg"] else "--"]
             for c, v in enumerate(vals):
                 self.table.setItem(r, c, QTableWidgetItem(v))
@@ -1391,15 +1417,15 @@ class StatsDialog(QDialog):
             a = self.summarise(groups[t])
             vals = [t or "(no track)", str(len(groups[t])), f"{a['good']}/{a['total']}",
                     fmt(a["best"][0]) if a["best"] else "--",
-                    fmt(a["best3"][0]) if a["best3"] else "--",
+                    fmt(a["bestn"][0]) if a["bestn"] else "--",
                     fmt(a["avg"]) if a["avg"] else "--"]
             for c, v in enumerate(vals):
                 self.by_track.setItem(r, c, QTableWidgetItem(v))
 
     def export_video(self):
-        win = best_three_window(self.lib, self.lib.video_ids(self.combo.currentData()))
+        win = best_run_window(self.lib, self.lib.video_ids(self.combo.currentData()))
         if not win:
-            QMessageBox.information(self, "Nothing to export", "No video here has three good laps in a row yet.")
+            QMessageBox.information(self, "Nothing to export", f"No video here has {run_length()} good laps in a row yet.")
             return
         ExportDialog(win, self).exec()
 
@@ -1659,7 +1685,7 @@ ROLE_INFO = Qt.ItemDataRole.UserRole + 1     # dict describing a library entry, 
 
 
 class LibraryDelegate(QStyledItemDelegate):
-    """Library entry: big track name, a LAPS / FASTEST / FASTEST 3 row, then a small file name line."""
+    """Library entry: big track name, a LAPS / FASTEST / FASTEST N row, then a small file name line."""
     HEIGHT = 78
 
     def sizeHint(self, option, index):
@@ -1709,7 +1735,7 @@ class LibraryDelegate(QStyledItemDelegate):
         colw = w / 3
         cols = (("LAPS", f"{info['good']}/{info['total']}" if info["total"] else "-"),
                 ("FASTEST", fmt(info["best"]) if info["best"] is not None else "-"),
-                ("FASTEST 3", fmt(info["best3"]) if info["best3"] is not None else "-"))
+                (f"FASTEST {run_length()}", fmt(info["bestn"]) if info["bestn"] is not None else "-"))
         for i, (cap, val) in enumerate(cols):
             cx = x0 + i * colw
             p.setFont(font(0.72)); p.setPen(muted)
@@ -1757,6 +1783,7 @@ class MainWindow(QMainWindow):
         self.seek_timer.timeout.connect(self._flush_seek)
         # smooth-scrub copy building
         self.settings = QSettings("fpv-lap-timer", "app")
+        set_run_length(self.settings.value("run_length", DEFAULT_RUN))     # before anything computes stats
         self.build = None        # dict for the ffmpeg job in progress
         self.build_queue = []    # [(video_id, path)]
         self.legacy_ffmpeg = False   # set when this ffmpeg is too old for -fps_mode
@@ -1950,12 +1977,22 @@ class MainWindow(QMainWindow):
         csv_btn = QPushButton("Export CSV…")
         csv_btn.setToolTip("Export this video's laps")
         csv_btn.clicked.connect(self.export_current)
-        vid_btn = QPushButton("🎬 Export fastest 3 video…")
-        vid_btn.setToolTip("Save a video of this video's fastest 3 consecutive laps with a lap timer on it")
-        vid_btn.clicked.connect(self.export_best3_video)
+        self.run_spin = QSpinBox()
+        self.run_spin.setRange(MIN_RUN, MAX_RUN)
+        self.run_spin.setValue(run_length())
+        self.run_spin.setSuffix(" laps")
+        self.run_spin.setToolTip("How many laps in a row the 'fastest run' figures and the export use "
+                                 f"({MIN_RUN}-{MAX_RUN}). Applies everywhere, to every video.")
+        self.run_spin.valueChanged.connect(self.on_run_length_changed)
+        self.run_btn = QPushButton()
+        self.run_btn.clicked.connect(self.export_bestn_video)
         r3 = QHBoxLayout(); r3.addWidget(chart_btn); r3.addWidget(csv_btn)
         rl.addLayout(r3)
-        rl.addWidget(vid_btn)
+        run_row = QHBoxLayout(); run_row.addWidget(QLabel("Fastest run of:")); run_row.addWidget(self.run_spin)
+        run_row.addStretch(1)
+        rl.addLayout(run_row)
+        rl.addWidget(self.run_btn)
+        self.refresh_run_labels()
         rl.addWidget(self.stats_label)
 
         split = QSplitter()
@@ -2302,7 +2339,7 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(vname(path))             # plain text for accessibility; painted by the delegate
             item.setData(ROLE_INFO, {
                 "track": meta[vid][0], "good": s["good"], "total": s["total"],
-                "best": s["best"][0] if s["best"] else None, "best3": s["best3"][0] if s["best3"] else None,
+                "best": s["best"][0] if s["best"] else None, "bestn": s["bestn"][0] if s["bestn"] else None,
                 "name": vname(path), "date": d.isoformat() if d else "", "ready": ready,
                 "dup": vid in dup_of, "exists": exists})
             item.setData(Qt.ItemDataRole.UserRole, (vid, path, fps))
@@ -2997,6 +3034,20 @@ class MainWindow(QMainWindow):
         self.slider.set_marks([m[1] for m in self.mark_rows])
         self.update_stats(laps)
 
+    def refresh_run_labels(self):
+        n = run_length()
+        self.run_btn.setText(f"🎬 Export fastest {n} video…")
+        self.run_btn.setToolTip(f"Save a video of this video's fastest {n} consecutive laps with a lap timer on it")
+
+    def on_run_length_changed(self, n):
+        """The 'Fastest run of N laps' box: every fastest-N figure and the export follow it, for all videos."""
+        set_run_length(n)
+        self.settings.setValue("run_length", run_length())
+        self.refresh_run_labels()
+        if self.vid is not None:
+            self.update_stats(self.lib.laps(self.vid))
+        self.refresh_library()
+
     def update_stats(self, laps):
         s = lap_stats(laps)
         if not laps:
@@ -3004,14 +3055,14 @@ class MainWindow(QMainWindow):
                                      "The first mark starts lap 1.</i>")
             return
         best = f"{fmt(s['best'][0])} <small>(lap {s['best'][1] + 1})</small>" if s["best"] else "--"
-        if s["best3"]:
-            i = s["best3"][1]
-            best3 = f"{fmt(s['best3'][0])} <small>(laps {i + 1}–{i + 3})</small>"
+        if s["bestn"]:
+            i = s["bestn"][1]
+            bestn = f"{fmt(s['bestn'][0])} <small>(laps {i + 1}–{i + run_length()})</small>"
         else:
-            best3 = "-- <small>(needs 3 good laps in a row)</small>"
+            bestn = f"-- <small>(needs {run_length()} good laps in a row)</small>"
         self.stats_label.setText(
             f"<div style='font-size:15px'>Laps: <b>{s['good']}</b> good / {s['total']} total<br>"
-            f"Fastest lap: <b>{best}</b><br>Fastest 3 consecutive: <b>{best3}</b></div>")
+            f"Fastest lap: <b>{best}</b><br>Fastest {run_length()} consecutive: <b>{bestn}</b></div>")
 
     def on_row_clicked(self, row, col):
         if col != self.COL_BAD and 0 <= row < len(self.mark_rows):
@@ -3058,14 +3109,14 @@ class MainWindow(QMainWindow):
         self.load_marks()
         self.refresh_library()
 
-    def export_best3_video(self):
+    def export_bestn_video(self):
         if self.vid is None:
             self.statusBar().showMessage("Open a video first", 3000)
             return
-        win = best_three_window(self.lib, {self.vid})
+        win = best_run_window(self.lib, {self.vid})
         if not win:
             QMessageBox.information(self, "Nothing to export",
-                                    "This video needs three good laps in a row (bad laps break the run) first.")
+                                    f"This video needs {run_length()} good laps in a row (bad laps break the run) first.")
             return
         ExportDialog(win, self).exec()
 

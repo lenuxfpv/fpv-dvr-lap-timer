@@ -3,7 +3,7 @@
 Version 1.3.0 (shown in the window title and **Help → About**).
 
 Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
-start gate, and get lap times, fastest lap and fastest 3 consecutive laps. Videos are kept in a
+start gate, and get lap times, fastest lap and your fastest run of consecutive laps (3 by default, 2-10 if you prefer). Videos are kept in a
 library grouped by track and session date.
 
 ## What's new in 1.3
@@ -153,7 +153,8 @@ LAPS      FASTEST     FASTEST 3
 
 - **Track name** in large bold type (*No track* in grey italics if none is set).
 - **LAPS** = good / total laps marked, **FASTEST** = best good lap, **FASTEST 3** = best three good laps in a
-  row (a dash until there are three in a row). Bad laps are excluded, as everywhere else.
+  row (a dash until there are three in a row; the 3 follows your *Fastest run of* setting, see *Reports*).
+  Bad laps are excluded, as everywhere else.
 - The **file name** is on a small line at the bottom (shortened in the middle if long), with the session
   date at its right.
 - Badges at the top right: **⚡** smooth-scrub copy ready, **⚠ duplicate** (orange) same file listed twice,
@@ -258,7 +259,7 @@ dialogs follow the theme too.
 - Each row is a gate pass. The lap time on a row is the time since the previous mark.
 - Click a row to jump the video to that mark.
 - Tick **Bad lap** to exclude that lap (the lap *ending* at that mark). Bad laps are greyed out,
-  never counted as a fastest lap, and **break a run of 3**, so "fastest 3 consecutive" is always three
+  never counted as a fastest lap, and **break a run of laps**, so "fastest N consecutive" (3 by default) is always N
   good laps in a row.
 - **Delete mark** removes a mark (the two neighbouring laps merge).
 - **Move mark here** moves the selected mark to the current video position, for fixing a mark that
@@ -290,26 +291,32 @@ dialogs follow the theme too.
 
 ## Reports
 
-- **Per video** (right panel): good / total laps, fastest lap, fastest 3 consecutive laps.
+- **Per video** (right panel): good / total laps, fastest lap, fastest N consecutive laps.
 - **Lap chart** (right panel): bar chart of one video's laps. Green = fastest, grey = bad, dashed blue
-  box = fastest 3 consecutive. Hover a bar for details.
-- **Library stats** (left panel): pick a track (or *All tracks*) to see its fastest lap and fastest 3,
+  box = fastest N consecutive. Hover a bar for details.
+- **Library stats** (left panel): pick a track (or *All tracks*) to see its fastest lap and fastest N,
   a per-video table, and a **By track** table comparing every track.
 - **Progress chart** (in Library stats): one point per video in session-date order, showing fastest lap
-  and best-3 average per lap for the selected track, to see improvement over time.
+  and best-N average per lap for the selected track, to see improvement over time.
 - **Export CSV**: from the right panel (current video) or Library stats (selected track). Columns:
   `track, session_date, video, lap, start_s, end_s, lap_time_s, lap_time, bad_lap`. Bad laps are
   included and marked `yes`, so you can filter them in a spreadsheet.
 
-Fastest-3 is calculated within a single video; it never spans two videos.
+**Choosing N.** *Fastest run of:* in the right panel (above the export button) sets how many consecutive
+laps the "fastest N" figures use, from 2 to 10 (default 3). It is one global setting: the library cards,
+the per-video and library stats, the lap chart's dashed box, the progress chart and the export all follow
+it straight away, for every video, and it is remembered. Nothing is stored per video, so changing it never
+alters your marks. A video shows a dash when it doesn't have N good laps in a row.
 
-### Export the fastest 3 laps as a video
+Fastest-N is calculated within a single video; it never spans two videos.
 
-Makes a shareable video of your fastest 3 consecutive laps with a lap timer drawn on it.
+### Export the fastest N laps as a video
 
-- **From the open video:** **🎬 Export fastest 3 video…** in the right panel exports that video's fastest
-  3 consecutive laps. **From a track:** **Library stats → 🎬 Export fastest 3 video (this track)…** exports
-  the single fastest 3 across all videos on the selected track (or *All tracks*), whichever video they
+Makes a shareable video of your fastest N consecutive laps (N = *Fastest run of*, 3 by default) with a lap timer drawn on it.
+
+- **From the open video:** **🎬 Export fastest N video…** in the right panel exports that video's fastest
+  N consecutive laps. **From a track:** **Library stats → 🎬 Export fastest N video (this track)…** exports
+  the single fastest run of N laps across all videos on the selected track (or *All tracks*), whichever video they
   are in. Choose the file name and click *Export*; a progress bar shows how far it is and *Cancel*
   removes the partial file.
 - **What you get:** an MP4 (H.264) of the **original footage**, not the smooth copy, at its original
@@ -319,8 +326,8 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
   Audio is kept if the source has any.
 - **The overlay:** top left, the current lap number and a running lap timer that restarts at each gate,
   with each finished lap's time listed underneath; top right, the track name and date and the running
-  3-lap total; after the last gate the final lap and total are held on screen and a gold
-  *FASTEST 3 CONSECUTIVE LAPS m:ss.mmm* banner appears.
+  total of the N laps; after the last gate the final lap and total are held on screen and a gold
+  *FASTEST N CONSECUTIVE LAPS m:ss.mmm* banner appears.
 - **Notes:** if your ffmpeg has no H.264 encoder (libx264) the app tells you so in plain words, with the fix for
   your system, before it starts (for exports and for smooth-scrub copies). It needs ffmpeg with libx264 and a bold font file (found automatically: DejaVu Sans Bold / Liberation on
   Linux, Arial on Windows and macOS). Exporting is slow because it is a high-quality re-encode: about 30 s for a 28 s 60 fps clip on a fast machine and a few minutes for a 90 fps clip read from a network share, so leave it running. The source video
@@ -339,6 +346,10 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- **Fastest run of N laps:** choose how many consecutive laps (2-10, default 3) the "fastest N" figures and
+  the video export use, instead of always 3. One global setting in the right panel.
 
 ### 1.3.0
 - **＋ New track…** in the library's track dropdown creates an empty track you can add videos to, and
