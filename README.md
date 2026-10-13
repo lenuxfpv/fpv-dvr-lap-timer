@@ -51,6 +51,12 @@ you tick it) and an "FPV DVR Lap Timer" entry in Settings > Apps, where you can 
 whether to also delete the smooth-scrub copies; your library and videos are never touched. The release also has the
 bare `FPVDVRLapTimer.exe` if you prefer a portable copy (it has no Apps entry).
 
+**"Windows protected your PC" (SmartScreen).** The installer and exe aren't code-signed (a signing certificate costs
+money every year), so Windows SmartScreen may show a blue warning the first time you run them. It appears for any
+new, unsigned program and doesn't mean anything is wrong with the file. Click **More info**, then **Run anyway**.
+If your browser blocks the download, choose **Keep** from its download menu. The source is all in this repository
+if you want to check what you are running.
+
 **ffmpeg.** It isn't bundled. If ffmpeg or ffprobe can't be found when the app starts, it offers to install ffmpeg with
 winget (tick *Don't ask again* to stop the prompt, and use **Help → Install ffmpeg…** any time). The app picks up a
 freshly installed ffmpeg without a restart. You can also install it yourself (`winget install Gyan.FFmpeg`) or put
@@ -365,6 +371,9 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
 tags remain), so this list is the record of what changed in each version.
+
+### Unreleased
+- README: note about the Windows SmartScreen warning for the unsigned installer and exe.
 
 ### 1.10.3
 - Export video: when the export finishes, an **Open the folder** link under the *Done* message opens the folder
