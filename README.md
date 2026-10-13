@@ -84,7 +84,7 @@ Windows `%APPDATA%\fpv-lap-timer\library.db`, macOS `~/Library/Application Suppo
 Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds each video's path,
 gate marks, bad-lap flags, track name and session date. **Nothing is written next to your videos**,
 and the app never modifies or deletes video files. Back up that one file to keep your history.
-Preferences (theme, Mark gate hotkey, the *Auto-build* / *Build when adding* checkboxes) are stored
+Preferences (theme, keyboard shortcuts, the *Auto-build* / *Build when adding* checkboxes) are stored
 separately by Qt (Linux `~/.config/fpv-lap-timer/app.conf`, Windows registry) and are not part of the
 library file.
 
@@ -198,10 +198,12 @@ times, so they are identical whichever version you used. More about the copies:
 
 ### Controls
 
+These are the defaults; every one can be changed (see *Changing the keys* below).
+
 | Key | Action |
 |---|---|
 | Space | Play / pause (also stops a shuttle) |
-| Z | Mark gate pass on the frame shown (changeable: **View → Mark gate hotkey…**) |
+| Z | Mark gate pass on the frame shown |
 | ← / → | Step one frame back / forward (hold to repeat) |
 | Mouse wheel on video | Step frames (Shift = 10) |
 | Hold Shift + ← / → | Play backward / forward at 2x while held; stops on release |
@@ -213,12 +215,15 @@ times, so they are identical whichever version you used. More about the copies:
 
 Audio is muted by default (checkbox under the video).
 
-### Changing the Mark gate hotkey
+### Changing the keys
 
-The default is **Z**. To use a different key choose **View → Mark gate hotkey…**, click the box and press
-the key (a single key, optionally with Ctrl / Shift / Alt, e.g. `Ctrl+G`), then *Save*. It warns if the key
-is already used for something else (Space, arrows, J/K/L, PgUp/PgDn, Delete…). The choice is remembered, and
-the button label and the hint under the video update to show it. *Reset to Z* restores the default.
+Every key in the table above can be changed: choose **View → Keyboard shortcuts…**, click the box next to an
+action and press the key you want (a single key, optionally with Ctrl / Shift / Alt, e.g. `Ctrl+G`). *Default*
+puts one action back, *Clear* leaves it without a key, and *Reset all to defaults* restores everything.
+Giving two actions the same key (or using Return, which always opens the selected video in the library) is
+blocked: the clashing rows turn orange and *Save* stays disabled until you fix it. The choices are
+remembered, and the **MARK GATE** button label and the hint under the video show your keys. A Mark gate key
+you set in an older version carries over.
 
 ### Dark mode
 
@@ -303,6 +308,10 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 
 Releases and their `FPVLapTimer.exe` downloads are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- **View → Keyboard shortcuts…**: every key (play/pause, frame stepping, hold-to-play, 5-second jumps,
+  shuttle, gate navigation, speed, delete mark) can now be changed, not just Mark gate. Clashes are blocked.
 
 ### 1.1.6
 - New **`FPVLapTimer-Setup.exe`** installer on the Releases page: per-user install (no admin), Start Menu

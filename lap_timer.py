@@ -18,12 +18,12 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, QTimer
-from PyQt6.QtCore import QDate, QEvent, QProcess, QSize, QRectF, QSettings, pyqtSignal
+from PyQt6.QtCore import QDate, QEvent, QKeyCombination, QProcess, QSize, QRectF, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QKeySequence, QPainter, QPen, QShortcut
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
+    QAbstractSpinBox, QApplication, QCheckBox, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
     QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSlider, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QWidget,
@@ -1495,44 +1495,123 @@ def apply_theme(app, theme):
 SYNC_FLAGS = ["-fps_mode", "passthrough"]
 SYNC_FLAGS_OLD = ["-vsync", "0"]
 
-DEFAULT_MARK_KEY = "Z"
+# Every key the user can rebind: (id, what it does, default key). The ids are the settings keys
+# ("keys/<id>"); only a changed key is stored, so new defaults reach everyone who never changed it.
+KEY_ACTIONS = [
+    ("play", "Play / pause", "Space"),
+    ("mark", "Mark gate pass", "Z"),
+    ("step_back", "Step one frame back (hold to repeat)", "Left"),
+    ("step_fwd", "Step one frame forward (hold to repeat)", "Right"),
+    ("hold_back", "Hold to play backward at 2x", "Shift+Left"),
+    ("hold_fwd", "Hold to play forward at 2x", "Shift+Right"),
+    ("jump_back", "Jump back 5 seconds", "Ctrl+Left"),
+    ("jump_fwd", "Jump forward 5 seconds", "Ctrl+Right"),
+    ("shuttle_back", "Shuttle backward (repeat to speed up)", "J"),
+    ("shuttle_stop", "Stop shuttle", "K"),
+    ("shuttle_fwd", "Shuttle forward (repeat to speed up)", "L"),
+    ("prev_gate", "Previous gate mark", "PgUp"),
+    ("next_gate", "Next gate mark", "PgDown"),
+    ("slower", "Slower playback", "["),
+    ("faster", "Faster playback", "]"),
+    ("delete_mark", "Delete the selected mark (when the table has focus)", "Delete"),
+]
+KEY_DEFAULTS = {kid: key for kid, _, key in KEY_ACTIONS}
+KEY_LABELS = {kid: label for kid, label, _ in KEY_ACTIONS}
+RESERVED_KEYS = {"Return": "Open the selected video (library list)"}    # fixed, can't be rebound
+PORTABLE = QKeySequence.SequenceFormat.PortableText
 
 
-class HotkeyDialog(QDialog):
-    """Pick the key that marks a gate pass. Warns if it is already used for something else."""
-    def __init__(self, current, taken, parent=None):
+def key_portable(key):
+    """Normalise a key string ('ctrl+g', 'Ctrl+G') to Qt's portable form ('' if empty)."""
+    return QKeySequence(key).toString(PORTABLE) if key else ""
+
+
+class KeysDialog(QDialog):
+    """Change any of the app's keys. Blocks duplicates and keys that are fixed (Return)."""
+    def __init__(self, current, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Mark gate hotkey")
-        self.taken = taken                       # {QKeySequence portable string: what it does}
-        self.edit = QKeySequenceEdit(QKeySequence(current))
-        self.edit.setMaximumSequenceLength(1)    # one key (with optional Ctrl/Shift/Alt), not a chord
+        self.setWindowTitle("Keyboard shortcuts")
+        self.resize(560, 560)
+        self.edits = {}
+        table = QTableWidget(len(KEY_ACTIONS), 4)
+        table.setHorizontalHeaderLabels(["Action", "Key", "", ""])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        for r, (kid, label, default) in enumerate(KEY_ACTIONS):
+            table.setItem(r, 0, QTableWidgetItem(label))
+            edit = QKeySequenceEdit(QKeySequence(current.get(kid, default)))
+            edit.setMaximumSequenceLength(1)         # one key (with optional Ctrl/Shift/Alt), not a chord
+            edit.keySequenceChanged.connect(self.check)
+            self.edits[kid] = edit
+            table.setCellWidget(r, 1, edit)
+            reset = QPushButton("Default")
+            reset.setToolTip(f"Back to {default}")
+            reset.clicked.connect(lambda _=False, e=edit, d=default: e.setKeySequence(QKeySequence(d)))
+            clear = QPushButton("Clear")
+            clear.setToolTip("No key for this action")
+            clear.clicked.connect(edit.clear)
+            table.setCellWidget(r, 2, reset)
+            table.setCellWidget(r, 3, clear)
+        table.setColumnWidth(1, 150)
+        table.resizeColumnToContents(2)
+        table.resizeColumnToContents(3)
+        self.table = table
+
         self.msg = QLabel()
         self.msg.setWordWrap(True)
         self.msg.setStyleSheet("color:#ef6c00")
-        reset = QPushButton(f"Reset to {DEFAULT_MARK_KEY}")
-        reset.clicked.connect(lambda: self.edit.setKeySequence(QKeySequence(DEFAULT_MARK_KEY)))
-        ok, cancel = QPushButton("Save"), QPushButton("Cancel")
-        ok.setDefault(True)
-        ok.clicked.connect(self.try_accept)
+        reset_all = QPushButton("Reset all to defaults")
+        reset_all.clicked.connect(self.reset_all)
+        cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
+        self.ok = QPushButton("Save")
+        self.ok.setDefault(True)
+        self.ok.clicked.connect(self.accept)
+
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("Click the box, then press the key you want to use for <b>Mark gate</b>:"))
-        lay.addWidget(self.edit)
+        lay.addWidget(QLabel("Click a key box, then press the key you want (optionally with Ctrl / Shift / Alt, "
+                             "e.g. <b>Ctrl+G</b>). Use <i>Clear</i> to leave an action without a key."))
+        lay.addWidget(table, 1)
         lay.addWidget(self.msg)
-        row = QHBoxLayout(); row.addWidget(reset); row.addStretch(1); row.addWidget(cancel); row.addWidget(ok)
+        row = QHBoxLayout(); row.addWidget(reset_all); row.addStretch(1); row.addWidget(cancel); row.addWidget(self.ok)
         lay.addLayout(row)
+        self.check()
 
-    def key(self):
-        return self.edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
+    def keys(self):
+        """{action id: portable key string ('' = none)}"""
+        return {kid: e.keySequence().toString(PORTABLE) for kid, e in self.edits.items()}
 
-    def try_accept(self):
-        key = self.key()
-        if not key:
-            self.msg.setText("Press a key first.")
-        elif key in self.taken:
-            self.msg.setText(f"'{key}' is already used for: {self.taken[key]}. Pick another key.")
+    def reset_all(self):
+        for kid, e in self.edits.items():
+            e.setKeySequence(QKeySequence(KEY_DEFAULTS[kid]))
+
+    def conflicts(self):
+        """[(key, [what it is used for...])] for every key that is used twice or is reserved."""
+        used = {}
+        for kid, key in self.keys().items():
+            if key:
+                used.setdefault(key, []).append(KEY_LABELS[kid])
+        out = []
+        for key, whats in used.items():
+            if key in RESERVED_KEYS:
+                whats = whats + [RESERVED_KEYS[key] + " - fixed"]
+            if len(whats) > 1:
+                out.append((key, whats))
+        return out
+
+    def check(self, *_):
+        bad = self.conflicts()
+        clash = {key for key, _ in bad}
+        for kid, key in self.keys().items():
+            self.edits[kid].setStyleSheet("background:#ffe0b2; color:black" if key in clash else "")
+        if bad:
+            key, whats = bad[0]
+            self.msg.setText(f"'{key}' is used for more than one thing: " + "; ".join(whats) + ". Pick another key.")
         else:
-            self.accept()
+            self.msg.setText("")
+        self.ok.setEnabled(not bad)
 
 
 ROLE_INFO = Qt.ItemDataRole.UserRole + 1     # dict describing a library entry, painted by LibraryDelegate
@@ -1736,7 +1815,7 @@ class MainWindow(QMainWindow):
         self.mute = QCheckBox("Mute"); self.mute.setChecked(True)
         self.mute.toggled.connect(self.audio.setMuted)
         self.mark_btn = QPushButton()
-        self.mark_btn.setToolTip("Mark a gate pass on the frame shown. Change the key under View → Mark gate hotkey…")
+        self.mark_btn.setToolTip("Mark a gate pass on the frame shown. Change the key under View → Keyboard shortcuts…")
         self.mark_btn.setStyleSheet("font-weight:bold; padding:8px 14px; background:#2e7d32; color:white;")
         self.mark_btn.clicked.connect(self.mark_gate)
 
@@ -1795,8 +1874,6 @@ class MainWindow(QMainWindow):
         cl.addLayout(ctl)
         cl.addLayout(proxyrow)
         self.hint = hint = QLabel()
-        self._hint_tail = ("←/→ frame (hold to repeat) · wheel on video = frame (Shift ×10) · "
-                      "hold Shift+←/→ = 2x play · Ctrl+←/→ ±5s · J/K/L shuttle · PgUp/PgDn prev/next gate · [ ] speed")
         hint.setStyleSheet("color:gray")
         hint.setWordWrap(True)
         cl.addWidget(hint)
@@ -1843,34 +1920,28 @@ class MainWindow(QMainWindow):
         split.setSizes([310, 740, 360])
         self.setCentralWidget(split)
 
-        # --- shortcuts
-        self.key_uses = {}                  # portable key string -> description, for conflict warnings
-        def sc(key, fn, what=None):
-            s = QShortcut(QKeySequence(key), self)
-            s.setContext(Qt.ShortcutContext.ApplicationShortcut)
-            s.activated.connect(fn)
-            if what:
-                self.key_uses[QKeySequence(key).toString(QKeySequence.SequenceFormat.PortableText)] = what
-            return s
-        sc("Space", self.toggle_play, "Play / pause")
-        self.mark_shortcut = sc(self.settings.value("mark_key", DEFAULT_MARK_KEY), self.mark_gate)
-        sc("Left", lambda: self.step(-1), "Step one frame back")
-        sc("Right", lambda: self.step(1), "Step one frame forward")
-        # Shift+←/→ = hold to play at 2x backward/forward (handled in eventFilter, needs key releases)
+        # --- shortcuts (every key is rebindable: View > Keyboard shortcuts…)
+        handlers = {
+            "play": self.toggle_play, "mark": self.mark_gate,
+            "step_back": lambda: self.step(-1), "step_fwd": lambda: self.step(1),
+            "jump_back": lambda: self.seek_rel(-5000), "jump_fwd": lambda: self.seek_rel(5000),
+            "shuttle_back": lambda: self.key_shuttle(-1), "shuttle_stop": lambda: self.set_shuttle(0),
+            "shuttle_fwd": lambda: self.key_shuttle(1),
+            "prev_gate": lambda: self.jump_mark(-1), "next_gate": lambda: self.jump_mark(1),
+            "slower": lambda: self.change_speed(-1), "faster": lambda: self.change_speed(1),
+            "delete_mark": self.delete_key,
+        }
+        self.shortcuts = {}
+        for kid, fn in handlers.items():
+            s_ = QShortcut(QKeySequence(), self)
+            s_.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            s_.activated.connect(fn)
+            self.shortcuts[kid] = s_
+        # hold_back / hold_fwd = hold to play at 2x (handled in eventFilter, which needs the key releases)
         self.hold_key = None
+        self.hold_mod_keys = set()
+        self.hold_bindings = {}             # portable key string -> shuttle speed
         QApplication.instance().installEventFilter(self)
-        sc("Ctrl+Left", lambda: self.seek_rel(-5000), "Jump back 5 seconds")
-        sc("Ctrl+Right", lambda: self.seek_rel(5000), "Jump forward 5 seconds")
-        sc("J", lambda: self.key_shuttle(-1), "Shuttle backward")
-        sc("K", lambda: self.set_shuttle(0), "Stop shuttle")
-        sc("L", lambda: self.key_shuttle(1), "Shuttle forward")
-        sc("PgUp", lambda: self.jump_mark(-1), "Previous gate")
-        sc("PgDown", lambda: self.jump_mark(1), "Next gate")
-        sc("[", lambda: self.change_speed(-1), "Slower playback")
-        sc("]", lambda: self.change_speed(1), "Faster playback")
-        sc("Delete", self.delete_key, "Delete selected mark")
-        self.key_uses.update({"Shift+Left": "Hold to play backward at 2x", "Shift+Right": "Hold to play forward at 2x",
-                              "Return": "Open the selected video"})
 
         enter = QShortcut(QKeySequence(Qt.Key.Key_Return), self.lib_list)
         enter.setContext(Qt.ShortcutContext.WidgetShortcut)
@@ -1884,7 +1955,7 @@ class MainWindow(QMainWindow):
 
         # --- View > Theme
         view_menu = self.menuBar().addMenu("&View")
-        view_menu.addAction("Mark gate &hotkey…").triggered.connect(self.choose_mark_key)
+        view_menu.addAction("&Keyboard shortcuts…").triggered.connect(self.choose_keys)
         theme_menu = view_menu.addMenu("&Theme")
         group = QActionGroup(self)
         self.theme_actions = {}
@@ -1902,7 +1973,7 @@ class MainWindow(QMainWindow):
         help_menu.addAction("&About").triggered.connect(
             lambda: QMessageBox.about(self, "About FPV Lap Timer", f"FPV Lap Timer {VERSION}"))
 
-        self.refresh_mark_key_labels()
+        self.apply_keys()
         self.refresh_library()
 
     # ---- ffmpeg check -------------------------------------------------------
@@ -2236,25 +2307,45 @@ class MainWindow(QMainWindow):
         self.lib.remove_video(vid)
         self.refresh_library()
 
-    def mark_key_text(self):
-        return QKeySequence(self.settings.value("mark_key", DEFAULT_MARK_KEY)).toString(
-            QKeySequence.SequenceFormat.NativeText)
+    def key_for(self, kid):
+        """The key bound to action `kid` (portable string, '' = none): the saved one, else the default."""
+        saved = self.settings.value(f"keys/{kid}")
+        if saved is None and kid == "mark":
+            saved = self.settings.value("mark_key")       # pre-1.2 setting: only the mark key was changeable
+        return key_portable(KEY_DEFAULTS[kid] if saved is None else str(saved))
 
-    def refresh_mark_key_labels(self):
-        key = self.mark_key_text()
-        self.mark_btn.setText(f"🏁 MARK GATE ({key})")
-        self.hint.setText(f"Space play/pause · {key} mark · " + self._hint_tail)
+    def key_text(self, kid):
+        """Key for display ('–' if none)."""
+        key = self.key_for(kid)
+        if not key:
+            return "–"
+        return QKeySequence(key).toString(QKeySequence.SequenceFormat.NativeText).replace("Left", "←").replace("Right", "→")
 
-    def choose_mark_key(self):
-        current = self.settings.value("mark_key", DEFAULT_MARK_KEY)
-        taken = {k: v for k, v in self.key_uses.items()}
-        dlg = HotkeyDialog(current, taken, self)
+    def apply_keys(self):
+        """(Re)bind every shortcut from the saved settings and update the labels that show them."""
+        for kid, sc_ in self.shortcuts.items():
+            sc_.setKey(QKeySequence(self.key_for(kid)))
+        self.hold_bindings = {k: sp for kid, sp in (("hold_back", -2.0), ("hold_fwd", 2.0))
+                              if (k := self.key_for(kid))}
+        t = self.key_text
+        self.mark_btn.setText(f"🏁 MARK GATE ({t('mark')})")
+        self.hint.setText(
+            f"{t('play')} play/pause · {t('mark')} mark · {t('step_back')}/{t('step_fwd')} frame (hold to repeat) · "
+            f"wheel on video = frame (Shift ×10) · hold {t('hold_back')}/{t('hold_fwd')} = 2x play · "
+            f"{t('jump_back')}/{t('jump_fwd')} ±5s · {t('shuttle_back')}/{t('shuttle_stop')}/{t('shuttle_fwd')} shuttle · "
+            f"{t('prev_gate')}/{t('next_gate')} prev/next gate · {t('slower')} {t('faster')} speed")
+
+    def choose_keys(self):
+        dlg = KeysDialog({kid: self.key_for(kid) for kid in KEY_DEFAULTS}, self)
         if dlg.exec():
-            key = dlg.key()
-            self.settings.setValue("mark_key", key)
-            self.mark_shortcut.setKey(QKeySequence(key))
-            self.refresh_mark_key_labels()
-            self.statusBar().showMessage(f"Mark gate hotkey is now {self.mark_key_text()}", 5000)
+            for kid, key in dlg.keys().items():
+                if key == key_portable(KEY_DEFAULTS[kid]):
+                    self.settings.remove(f"keys/{kid}")          # default again: store nothing
+                else:
+                    self.settings.setValue(f"keys/{kid}", key)
+            self.settings.remove("mark_key")                     # migrated into keys/mark
+            self.apply_keys()
+            self.statusBar().showMessage("Keyboard shortcuts saved", 4000)
 
     def set_theme(self, theme):
         self.settings.setValue("theme", theme)
@@ -2566,20 +2657,29 @@ class MainWindow(QMainWindow):
         self.refresh_library()
 
     def eventFilter(self, obj, ev):
-        """Shift+Left/Right: play at 2x (backward/forward) while the keys are held, stop on release."""
+        """Hold-to-play keys (default Shift+Left/Right): play at 2x while held, stop on release."""
         t = ev.type()
         if t == QEvent.Type.KeyPress:
-            k, mods = ev.key(), ev.modifiers()
+            k = ev.key()
             if self.hold_key is not None and k == self.hold_key:
                 return True                                  # swallow auto-repeat while holding
-            if (k in (Qt.Key.Key_Left, Qt.Key.Key_Right) and mods & Qt.KeyboardModifier.ShiftModifier
-                    and not mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
-                    and self.vid is not None and not QApplication.activeModalWidget()):
-                self.hold_key = k
-                self.set_shuttle(2.0 if k == Qt.Key.Key_Right else -2.0)
-                return True
+            if self.hold_bindings and self.vid is not None and not QApplication.activeModalWidget():
+                if isinstance(QApplication.focusWidget(), (QLineEdit, QAbstractSpinBox, QKeySequenceEdit)):
+                    return super().eventFilter(obj, ev)      # typing in a text box: not ours
+                mods = ev.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+                combo = QKeySequence(QKeyCombination(mods, Qt.Key(k))).toString(PORTABLE)
+                speed = self.hold_bindings.get(combo)
+                if speed is not None:
+                    self.hold_key = k
+                    self.hold_mod_keys = {key for flag, key in (
+                        (Qt.KeyboardModifier.ShiftModifier, Qt.Key.Key_Shift),
+                        (Qt.KeyboardModifier.ControlModifier, Qt.Key.Key_Control),
+                        (Qt.KeyboardModifier.AltModifier, Qt.Key.Key_Alt),
+                        (Qt.KeyboardModifier.MetaModifier, Qt.Key.Key_Meta)) if mods & flag}
+                    self.set_shuttle(speed)
+                    return True
         elif t == QEvent.Type.KeyRelease and self.hold_key is not None and not ev.isAutoRepeat():
-            if ev.key() in (self.hold_key, Qt.Key.Key_Shift):
+            if ev.key() == self.hold_key or ev.key() in self.hold_mod_keys:
                 self.hold_key = None
                 self.set_shuttle(0)
                 return True
