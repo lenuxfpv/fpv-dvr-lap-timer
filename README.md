@@ -1,20 +1,44 @@
 # FPV DVR Lap Timer
 
-![FPV DVR Lap Timer: library on the left, video and seek bar in the middle, gate marks and lap times on the right](docs/screenshot.png)
-
 Version 1.10.6 (shown in the window title and **Help → About**).
 
 **Download (Windows):** [FPVDVRLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer-Setup.exe)
 (installer) · [FPVDVRLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer.exe)
 (portable) · [all releases](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases). Linux: see [Install](#install).
 
-Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
-start gate, and get lap times, fastest lap and your fastest run of consecutive laps (3 by default, 2-10 if you prefer). Videos are kept in a
-library grouped by track and session date.
+![FPV DVR Lap Timer: library on the left, video and seek bar in the middle, gate marks and lap times on the right](docs/screenshot.png)
 
 **Why I made it:** I was looking for an easy way to review my DVR files to find my laps for competing in
 RaceGOW. The app never modifies the DVR video files, and it can export a video of my fastest laps that I can
 submit as my RaceGOW entry.
+
+## What it is
+
+FPV DVR Lap Timer turns the footage your goggles record into lap times. Open a flight, step to the exact frame
+where you cross the start/finish gate and press one key; every mark after the first ends a lap and starts the
+next. There is no timing hardware and no transponder: the video is the stopwatch, and because each mark is
+placed on a frame you can see, the times are accurate to the frame and easy to double-check.
+
+## What it can do
+
+- **Mark laps frame by frame.** Play, shuttle (0.1x to 16x), step single frames or jump between gates, then mark
+  the frame on screen. Marks can be moved or deleted, and any lap can be flagged as bad.
+- **Scrub smoothly.** It builds a small all-keyframe copy of each video in the background, so scrubbing and
+  frame-stepping are fluid even on `.ts` DVR files.
+- **Keep a library.** Videos are grouped by track and session date, and each card shows the lap count, fastest lap
+  and fastest run at a glance. Move or rename files and the marks stay attached.
+- **Find your best.** Fastest lap and your fastest run of consecutive laps (3 by default, 2-10 per track), per
+  video and across a whole track, with a lap chart and a progress chart to see improvement over time.
+- **Export a shareable video.** Cut your fastest run from the original footage with a lap timer drawn on it,
+  optional start and end pictures (your pilot handle, say), your own audio or none, and padding either side.
+- **Export your data.** Lap times to CSV, and the whole library to a single file you can back up, move to another
+  computer or merge into another library.
+- **Make it yours.** Every key can be rebound, and there are light and dark themes.
+- **Stay safe.** Your DVR files are never modified or deleted; everything the app stores is in one small database
+  and a cache folder (see *Where your data lives*).
+
+It runs on Windows (installer or portable exe) and Linux, and reads `.ts`, `.mp4`, `.mov`, `.mkv`, `.m4v` and
+`.avi` files.
 
 ## Install
 
@@ -372,6 +396,9 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
 tags remain), so this list is the record of what changed in each version.
+
+### Unreleased
+- README: the screenshot and *Why I made it* now sit together at the top, followed by a clearer description of what the app is and what it can do.
 
 ### 1.10.6
 - Fixed an error (`'NoneType' object is not subscriptable`) when closing the app while a smooth copy was still building.
