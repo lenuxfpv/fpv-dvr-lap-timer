@@ -1046,7 +1046,7 @@ class ExportDialog(QDialog):
 
         laps = "<br>".join(f"Lap {i + 1}: <b>{fmt(ms)}</b>" for i, ms in enumerate(win["lap_ms"]))
         track = win["track"] or "No track"
-        summary = QLabel(f"<b>{track}</b> &nbsp;·&nbsp; {vname(win['path'])}<br><br>{laps}<br><br>"
+        summary = QLabel(f"<b>{html.escape(track)}</b> &nbsp;·&nbsp; {html.escape(vname(win['path']))}<br><br>{laps}<br><br>"
                          f"Fastest {n} consecutive: <b>{fmt(win['total_ms'])}</b>")
         summary.setTextFormat(Qt.TextFormat.RichText)
         source_dir = Path(win["path"]).parent                 # save next to the video it was cut from
@@ -1064,6 +1064,7 @@ class ExportDialog(QDialog):
         self.status = QLabel("Re-encodes the original footage (not the smooth copy) as H.264 MP4 at its original "
                              "size and frame rate, with the lap timer drawn on it.")
         self.status.setWordWrap(True)
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.folder_link = QLabel()                        # shown once the export is done: opens the folder
         self.folder_link.setOpenExternalLinks(True)
         self.folder_link.hide()
@@ -1672,6 +1673,7 @@ class FixPathsDialog(QDialog):
         grid.addWidget(QLabel("<b>New folder where those videos are now</b>"), 0, 1)
         for r, (old, count) in enumerate(sorted(folders.items()), start=1):
             label = QLabel(f"{old}  ({count} video{'s' if count != 1 else ''})")
+            label.setTextFormat(Qt.TextFormat.PlainText)
             label.setToolTip(old)
             label.setWordWrap(True)
             new = QLineEdit()
@@ -1766,7 +1768,9 @@ class DetailsDialog(QDialog):
         self.date.setEnabled(self.mode.currentIndex() == 2)
 
         form = QFormLayout(self)
-        form.addRow(QLabel(f"{len(vids)} video(s) selected" if multi else vname(paths[first])))
+        heading = QLabel(f"{len(vids)} video(s) selected" if multi else vname(paths[first]))
+        heading.setTextFormat(Qt.TextFormat.PlainText)
+        form.addRow(heading)
         form.addRow("Track:", self.track)
         form.addRow("Session date:", self.mode)
         form.addRow("", self.date)
@@ -1880,12 +1884,12 @@ class StatsDialog(QDialog):
 
         agg = self.summarise([(n, l) for _, n, _, _, l in rows], n_head)
         run_line = (f"Fastest {n_head} consecutive laps: {fmt(agg['bestn'][0]) if agg['bestn'] else '--'}"
-                    f"{' &nbsp;(' + agg['bestn'][1] + ')' if agg['bestn'] else ''}" if n_head else
+                    f"{' &nbsp;(' + html.escape(agg['bestn'][1]) + ')' if agg['bestn'] else ''}" if n_head else
                     "Fastest run: each track has its own run length, see the tables below")
         self.head.setText(
-            f"<h3>{track_title(track)}</h3>"
+            f"<h3>{html.escape(track_title(track))}</h3>"
             f"<h3>Fastest lap: {fmt(agg['best'][0]) if agg['best'] else '--'}"
-            f"{' &nbsp;(' + agg['best'][1] + ')' if agg['best'] else ''}<br>{run_line}</h3>")
+            f"{' &nbsp;(' + html.escape(agg['best'][1]) + ')' if agg['best'] else ''}<br>{run_line}</h3>")
         self.vid_btn.setText(f"🎬 Export fastest {n_head} video (this track)…" if n_head
                              else "🎬 Export fastest run video (pick a track)…")
 
@@ -2354,6 +2358,7 @@ class MainWindow(QMainWindow):
         self.build_on_add.toggled.connect(lambda v: self.settings.setValue("build_on_add", v))
         self.queue_label = QLabel()
         self.queue_label.setWordWrap(True)
+        self.queue_label.setTextFormat(Qt.TextFormat.PlainText)
         self.queue_label.setStyleSheet("color:gray")
         if not find_tool("ffmpeg"):
             self.build_all_btn.setEnabled(False); self.build_on_add.setEnabled(False)
@@ -2620,7 +2625,12 @@ class MainWindow(QMainWindow):
         proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         hide_console(proc)
 
+        reported = []
+
         def finished(code, _status):
+            if reported:                       # a crash can raise both errorOccurred and finished
+                return
+            reported.append(True)
             progress.close()
             output = bytes(proc.readAll()).decode("utf-8", "replace").strip()
             proc.deleteLater()
@@ -3216,7 +3226,7 @@ class MainWindow(QMainWindow):
             self.lib.relocate(vid, new)
             path = str(Path(new).resolve())
         self.vid, self.fps = vid, fps or 30.0
-        self.title_label.setText(f"<b>{vname(path)}</b>")
+        self.title_label.setText(f"<b>{html.escape(vname(path))}</b>")
         self.cur_path = path
         self.set_shuttle(0)
         self.cursor_ms = 0.0
@@ -3792,13 +3802,13 @@ class MainWindow(QMainWindow):
     def show_chart(self):
         if self.vid is None:
             return
-        name = Path(self.title_label.text().replace("<b>", "").replace("</b>", "")).name
+        name = vname(self.cur_path) if self.cur_path else ""
         ChartDialog(self.lib.laps(self.vid), name, self, n=self.video_run()).exec()
 
     def export_current(self):
         if self.vid is None:
             return
-        default = str(Path.home() / (self.title_label.text().replace("<b>", "").replace("</b>", "") + ".csv"))
+        default = str(Path.home() / (vname(self.cur_path) + ".csv")) if self.cur_path else str(Path.home() / "laps.csv")
         path, _ = QFileDialog.getSaveFileName(self, "Export CSV", default, "CSV (*.csv)")
         if path:
             export_csv(self.lib, {self.vid}, path)
@@ -3833,7 +3843,7 @@ def install_error_handler(get_window):
         text = "".join(traceback.format_exception(exc_type, exc, tb))
         sys.stderr.write(text)
         try:
-            log = data_dir() / "errors.log"
+            log = DB_PATH.parent / "errors.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             with open(log, "a", encoding="utf-8") as f:
                 f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S}\n{text}\n")
