@@ -93,7 +93,7 @@ You can also drag video files or folders onto the window.
 
 Everything is stored in one SQLite database - Linux `~/.local/share/fpv-dvr-lap-timer/library.db`,
 Windows `%APPDATA%\fpv-dvr-lap-timer\library.db`, macOS `~/Library/Application Support/fpv-dvr-lap-timer/`.
-Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds each video's path,
+Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. **Help → About** shows the library folder and the smooth-copies folder as links that open them in your file manager. It holds each video's path,
 gate marks, bad-lap flags, track name and session date. **Nothing is written next to your videos**
 (apart from an exported video, which you choose to save; see *Export*),
 and the app never modifies or deletes video files. Back up that one file to keep your history.
@@ -370,6 +370,9 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
 tags remain), so this list is the record of what changed in each version.
+
+### Unreleased
+- **Help → About** now has links that open the library folder (where `library.db` lives) and the smooth-copies folder.
 
 ### 1.10.5
 - The hint under the video, the Controls table and the export tooltip now match the start/finish gate wording

@@ -6,6 +6,7 @@ and your gate marks in a single SQLite database in your user data folder.
 """
 import csv
 import hashlib
+import html
 import json
 import os
 import re
@@ -2571,12 +2572,24 @@ class MainWindow(QMainWindow):
 
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("Install &ffmpeg…").triggered.connect(self.offer_ffmpeg)
-        help_menu.addAction("&About").triggered.connect(
-            lambda: QMessageBox.about(self, f"About {APP_NAME}",
-                                      f"{APP_NAME} {VERSION}\n\nAuthor: {AUTHOR}"))
+        help_menu.addAction("&About").triggered.connect(self.show_about)
 
         self.apply_keys()
         self.refresh_library()
+
+    def show_about(self):
+        def folder_line(label, folder):
+            name = html.escape(str(folder))
+            if folder.is_dir():
+                return f'{label}: <a href="{QUrl.fromLocalFile(str(folder)).toString()}">{name}</a>'
+            return f"{label}: {name} (not created yet)"
+        box = QMessageBox(self)
+        box.setWindowTitle(f"About {APP_NAME}")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(f"<b>{html.escape(APP_NAME)} {html.escape(VERSION)}</b><br><br>Author: {html.escape(AUTHOR)}<br><br>"
+                    + folder_line("Library folder (library.db)", DB_PATH.parent) + "<br>"
+                    + folder_line("Smooth copies folder", cache_dir()))
+        box.exec()
 
     # ---- ffmpeg check -------------------------------------------------------
     def missing_ffmpeg_tools(self):
