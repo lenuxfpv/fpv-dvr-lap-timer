@@ -489,6 +489,10 @@ class Library:
         self.db.execute("UPDATE marks SET bad_lap=? WHERE id=?", (1 if bad else 0, mid))
         self.db.commit()
 
+    def marked_ids(self):
+        """Ids of the videos that have at least one mark."""
+        return {r[0] for r in self.db.execute("SELECT DISTINCT video_id FROM marks")}
+
     def laps(self, vid):
         """List of (lap_ms, bad) for a video."""
         m = self.marks(vid)
@@ -2235,9 +2239,11 @@ class LibraryDelegate(QStyledItemDelegate):
 
         # --- rows 2-3: three stat columns (small caption above bold value)
         colw = w / 3
+        trophy = lambda v, on: v + (" 🏆" if on and v != "-" else "")
         cols = (("LAPS", f"{info['good']}/{info['total']}" if info["total"] else "-"),
-                ("FASTEST", fmt(info["best"]) if info["best"] is not None else "-"),
-                (f"FASTEST {info.get('run') or run_length()}", fmt(info["bestn"]) if info["bestn"] is not None else "-"))
+                ("FASTEST", trophy(fmt(info["best"]) if info["best"] is not None else "-", info.get("pb_lap"))),
+                (f"FASTEST {info.get('run') or run_length()}",
+                 trophy(fmt(info["bestn"]) if info["bestn"] is not None else "-", info.get("pb_run"))))
         for i, (cap, val) in enumerate(cols):
             cx = x0 + i * colw
             p.setFont(font(0.72)); p.setPen(muted)
@@ -2318,6 +2324,11 @@ class MainWindow(QMainWindow):
         self.last_filter = None
         self.pending_filter = NO_PENDING     # track to show after the next rebuild of the dropdown
         self.track_filter.currentIndexChanged.connect(self.on_track_filter_changed)
+        self.marked_filter = QComboBox()
+        self.marked_filter.setToolTip("Hide videos by whether they have any lap marks yet")
+        for label, key in (("Show: all videos", None), ("Show: not marked yet", False), ("Show: marked only", True)):
+            self.marked_filter.addItem(label, key)
+        self.marked_filter.currentIndexChanged.connect(lambda _: self.refresh_library())
         self.sort_box = QComboBox()
         self.sort_box.setToolTip("Order of the videos in the list. Videos with no lap times yet go last.")
         for label, key in (("Sort: date (oldest first)", "date"), ("Sort: date (newest first)", "newest"),
@@ -2349,6 +2360,7 @@ class MainWindow(QMainWindow):
         ll.addWidget(QLabel("<b>Video library</b>"))
         ll.addWidget(self.track_filter)
         ll.addWidget(self.sort_box)
+        ll.addWidget(self.marked_filter)
         ll.addWidget(self.lib_list)
         ll.addWidget(details)
         r1 = QHBoxLayout(); r1.addWidget(add_files); r1.addWidget(add_folder)
@@ -2853,13 +2865,23 @@ class MainWindow(QMainWindow):
 
         self.lib_list.clear()
         rmap = self.lib.run_map()
-        entries = []
+        everything = []
         for vid, path, fps in self.lib.videos():
-            if show is not None and meta[vid][0] != show:
-                continue
             n = run_for(rmap, meta[vid][0])
-            entries.append((effective_date(path, meta[vid][1])[0], vid, path, fps, n,
-                            lap_stats(self.lib.laps(vid), n)))
+            everything.append((effective_date(path, meta[vid][1])[0], vid, path, fps, n,
+                               lap_stats(self.lib.laps(vid), n)))
+        # personal bests: fastest lap / fastest run across every video of a named track (not just the visible ones)
+        pb = {}
+        for _, vid, _, _, _, st in everything:
+            track = meta[vid][0]
+            for field in ("best", "bestn"):
+                if track and st[field] and st[field][0] < pb.get((track, field), (1 << 62,))[0]:
+                    pb[(track, field)] = (st[field][0],)
+        want_marked = self.marked_filter.currentData()
+        marked = self.lib.marked_ids()
+        entries = [e for e in everything
+                   if (show is None or meta[e[1]][0] == show)
+                   and (want_marked is None or (e[1] in marked) == want_marked)]
         by_date = lambda e: (e[0] is None, e[0] or datetime.min.date(), e[2].lower())
         sort_key = self.sort_box.currentData()
         if sort_key in ("lap", "run"):
@@ -2887,6 +2909,8 @@ class MainWindow(QMainWindow):
             item.setData(ROLE_INFO, {
                 "track": meta[vid][0], "run": n, "good": s["good"], "total": s["total"],
                 "best": s["best"][0] if s["best"] else None, "bestn": s["bestn"][0] if s["bestn"] else None,
+                "pb_lap": bool(s["best"]) and bool(meta[vid][0]) and s["best"][0] == pb[(meta[vid][0], "best")][0],
+                "pb_run": bool(s["bestn"]) and bool(meta[vid][0]) and s["bestn"][0] == pb[(meta[vid][0], "bestn")][0],
                 "name": vname(path), "date": d.isoformat() if d else "", "ready": ready,
                 "dup": vid in dup_of, "exists": exists, "locked": vid in locked})
             item.setData(Qt.ItemDataRole.UserRole, (vid, path, fps))
