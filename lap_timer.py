@@ -1031,6 +1031,9 @@ class ExportDialog(QDialog):
         self.audio_edit.setPlaceholderText("none: keep the video's own audio")
         self.audio_edit.setToolTip("An audio file to use instead of the video's sound. It starts with the clip, "
                                    "is padded with silence if shorter and faded out at the end if longer.")
+        remembered = str(self.settings.value("export_audio", "") or "")      # last audio file, if still there
+        if remembered and os.path.exists(remembered) and not self.no_audio.isChecked():
+            self.audio_edit.setText(remembered)
         self.audio_edit.textChanged.connect(self.sync_audio_options)
         self.audio_browse = QPushButton("Browse…")
         self.audio_browse.clicked.connect(self.browse_audio)
@@ -1141,6 +1144,8 @@ class ExportDialog(QDialog):
             return
         self.part = self.final.with_name(self.final.stem + ".part.mp4")
         self.settings.setValue("export_no_audio", self.no_audio.isChecked())
+        if not self.no_audio.isChecked():
+            self.settings.setValue("export_audio", self.audio_path or "")
         self.start_pic.save()
         self.end_pic.save()
         self.settings.setValue("export_lead_s", self.lead_spin.value())
