@@ -1,12 +1,12 @@
 # FPV Lap Timer
 
-Version 1.2.0 (shown in the window title and **Help → About**).
+Version 1.2.1 (shown in the window title and **Help → About**).
 
 Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
 start gate, and get lap times, fastest lap and fastest 3 consecutive laps. Videos are kept in a
 library grouped by track and session date.
 
-## What's new in 1.2.0
+## What's new in 1.2
 
 - **Every keyboard shortcut can be changed**, not just Mark gate: **View → Keyboard shortcuts…**
   (clashing keys are blocked). See [Changing the keys](#changing-the-keys).
@@ -325,6 +325,10 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### 1.2.1
+- **Help → About** shows the author (LenuxFPV).
+- The hint line under the video now points to **View → Keyboard shortcuts…** instead of listing every key.
 
 ### 1.2.0
 - **View → Keyboard shortcuts…**: every key (play/pause, frame stepping, hold-to-play, 5-second jumps,

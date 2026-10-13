@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 AUTHOR = "LenuxFPV"
 VIDEO_EXTS = {".ts", ".mp4", ".mov", ".mkv", ".m4v", ".avi"}
 
