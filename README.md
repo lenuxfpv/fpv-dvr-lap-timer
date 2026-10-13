@@ -64,9 +64,11 @@ found when the app starts, it offers to install ffmpeg with winget (Windows) or 
 command / download page; tick *Don't ask again* to stop the prompt, and use **Help → Install ffmpeg…** any
 time. The app picks up a freshly installed ffmpeg without a restart.
 
-> The exe build has been run on a Windows runner (start-up only), but `install.ps1` / `install.bat` and the
-> app's menus, playback and exports have not been tried on a real Windows machine yet. If a script fails,
-> the error message should say which step; the app itself needs only `pip install PyQt6`.
+> Tested on a real Windows machine: `FPVLapTimer-Setup.exe` (install, the Settings > Apps entry, uninstall),
+> `FPVLapTimer.exe`, the ffmpeg install prompt and the Keyboard shortcuts dialog. Not yet tried there: the
+> `install.bat` / `install.ps1` route (run from source) since its Settings > Apps entry was added, and
+> playback and exports beyond what's listed. If a script fails, the error message should say which step; the
+> app itself needs only `pip install PyQt6`.
 
 ### Run without installing
 
