@@ -273,6 +273,10 @@ dialogs follow the theme too.
   selected videos are left alone unless you change them.
 - The dropdown above the library list filters it by track. Videos you add while a track is selected
   join that track.
+- **New empty track:** choose **＋ New track…** at the bottom of that dropdown, type a name, and the app
+  switches to the new (empty) track. Videos you add next (*Add videos…*, *Add folder…* or drag and drop)
+  join it. The empty track is remembered in the library (it is included in exports, imports and merges) and
+  also shows up under *Assign to track*. Typing a name that already exists just switches to that track.
 
 ## Reports
 
@@ -325,6 +329,9 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- **＋ New track…** in the library's track dropdown creates an empty track you can add videos to.
 
 ### 1.2.1
 - **Help → About** shows the author (LenuxFPV).

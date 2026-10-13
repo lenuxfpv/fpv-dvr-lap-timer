@@ -266,6 +266,9 @@ class Library:
                 bad_lap INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS marks_video ON marks(video_id, time_ms);
+            -- tracks created by hand before any video is on them (a track otherwise exists only
+            -- because some video has its name)
+            CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY);
         """)
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(videos)")}
         if "track" not in cols:
@@ -289,8 +292,17 @@ class Library:
         self.db.commit()
 
     def tracks(self):
+        """Every track name: those on videos plus ones created empty with add_track()."""
         return [r[0] for r in self.db.execute(
-            "SELECT DISTINCT track FROM videos WHERE track<>'' ORDER BY track COLLATE NOCASE")]
+            "SELECT track FROM videos WHERE track<>'' UNION SELECT name FROM extra_tracks "
+            "ORDER BY 1 COLLATE NOCASE")]
+
+    def add_track(self, name):
+        """Create an empty track (no videos yet). Does nothing if the name is already used."""
+        name = name.strip()
+        if name:
+            self.db.execute("INSERT OR IGNORE INTO extra_tracks(name) VALUES(?)", (name,))
+            self.db.commit()
 
     def video_ids(self, track=None):
         """None = every video, '' = videos with no track, otherwise that track's videos."""
@@ -449,6 +461,7 @@ class Library:
             self.db.execute("ALTER TABLE videos ADD COLUMN track TEXT NOT NULL DEFAULT ''")
         if "session_date" not in cols:
             self.db.execute("ALTER TABLE videos ADD COLUMN session_date TEXT")
+        self.db.execute("CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY)")
         self.db.commit()
 
     def merge_from(self, path):
@@ -483,6 +496,9 @@ class Library:
                         self.db.execute("INSERT INTO marks(video_id, time_ms, bad_lap) VALUES(?,?,?)", (vid, t, bad))
                         have.add(t)
                         stats["marks_added"] += 1
+            if src.execute("SELECT 1 FROM sqlite_master WHERE name='extra_tracks'").fetchone():
+                for (name,) in src.execute("SELECT name FROM extra_tracks"):       # empty tracks come across too
+                    self.db.execute("INSERT OR IGNORE INTO extra_tracks(name) VALUES(?)", (name,))
             self.db.commit()
         except Exception:
             self.db.rollback()
@@ -1615,6 +1631,9 @@ class KeysDialog(QDialog):
         self.ok.setEnabled(not bad)
 
 
+NEW_TRACK = "\x00new-track"      # itemData of the dropdown's "New track…" entry (never a real track name)
+NO_PENDING = object()
+
 ROLE_INFO = Qt.ItemDataRole.UserRole + 1     # dict describing a library entry, painted by LibraryDelegate
 
 
@@ -1747,7 +1766,9 @@ class MainWindow(QMainWindow):
         self.lib_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.track_filter = QComboBox()
         self.track_filter.addItem("All tracks", None)
-        self.track_filter.currentIndexChanged.connect(lambda: self.refresh_library())
+        self.last_filter = None
+        self.pending_filter = NO_PENDING     # track to show after the next rebuild of the dropdown
+        self.track_filter.currentIndexChanged.connect(self.on_track_filter_changed)
         # Double-click opens a video. (Not itemActivated as well: a double-click emits both, and opening
         # rebuilds the list, so the second call would get an item that no longer exists.)
         self.lib_list.itemDoubleClicked.connect(self.on_item_open_requested)
@@ -2148,10 +2169,37 @@ class MainWindow(QMainWindow):
             "your copies.")
 
     # ---- library -----------------------------------------------------------
+    def on_track_filter_changed(self):
+        if self.track_filter.currentData() == NEW_TRACK:
+            self.new_empty_track()
+        else:
+            self.refresh_library()
+
+    def new_empty_track(self):
+        """The dropdown's '＋ New track…' entry: make a track with no videos yet and switch to it, so
+        the videos added next (Add videos…, Add folder…, drag and drop) land on it."""
+        text, ok = QInputDialog.getText(self, "New track", "Name of the new track:")
+        name = " ".join(text.split()) if ok else ""
+        target = self.last_filter
+        if name:
+            same = next((t for t in self.lib.tracks() if t.lower() == name.lower()), None)
+            if same:
+                target = same
+                self.statusBar().showMessage(f"Track '{same}' already exists - switched to it", 5000)
+            else:
+                self.lib.add_track(name)
+                target = name
+                self.statusBar().showMessage(
+                    f"Track '{name}' created - add videos now and they will join it", 8000)
+        self.pending_filter = target
+        self.refresh_library()
+
     def refresh_library(self, select_id=None):
         select_id = select_id or self.vid
         # rebuild the track filter without triggering another refresh
         current = self.track_filter.currentData()
+        if self.pending_filter is not NO_PENDING:
+            current, self.pending_filter = self.pending_filter, NO_PENDING
         self.track_filter.blockSignals(True)
         self.track_filter.clear()
         self.track_filter.addItem("All tracks", None)
@@ -2160,10 +2208,13 @@ class MainWindow(QMainWindow):
         meta = self.lib.all_meta()
         if self.lib.tracks() and any(not t for t, _ in meta.values()):
             self.track_filter.addItem("(no track)", "")
+        self.track_filter.insertSeparator(self.track_filter.count())
+        self.track_filter.addItem("＋ New track…", NEW_TRACK)
         i = self.track_filter.findData(current) if current is not None else 0
         self.track_filter.setCurrentIndex(max(i, 0))
         self.track_filter.blockSignals(False)
         show = self.track_filter.currentData()
+        self.last_filter = show
 
         self.lib_list.clear()
         entries = []
