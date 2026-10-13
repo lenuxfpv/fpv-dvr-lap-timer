@@ -1444,6 +1444,70 @@ class ProgressDialog(QDialog):
 
 
 # ----------------------------------------------------------------------------
+# Add folder: choose which of the videos found to add
+# ----------------------------------------------------------------------------
+class AddVideosDialog(QDialog):
+    """Lists the video files found in a folder (and its subfolders) with a tick box each, so the user can
+    add them all or untick the ones they don't want. Files already in the library are shown but not ticked."""
+    def __init__(self, entries, parent=None, title="Add videos", intro=""):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(760, 520)
+        # entries: [(path, shown name, size in bytes or None, already in the library)]
+        self.list = QListWidget()
+        for path, shown, size, known in sorted(entries, key=lambda e: e[1].lower()):
+            text = shown + (f"    ({size / 1e9:.1f} GB)" if size and size >= 1e9 else
+                            f"    ({size / 1e6:,.0f} MB)" if size and size >= 1e6 else
+                            "    (<1 MB)" if size is not None else "")
+            item = QListWidgetItem(text + ("    - already in the library" if known else ""))
+            item.setToolTip(str(path))
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
+            if known:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable & ~Qt.ItemFlag.ItemIsEnabled)
+            else:
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked)
+            self.list.addItem(item)
+        self.list.itemChanged.connect(self.update_count)
+        self.count = QLabel()
+        all_btn, none_btn = QPushButton("Select all"), QPushButton("Select none")
+        all_btn.clicked.connect(lambda: self.set_all(Qt.CheckState.Checked))
+        none_btn.clicked.connect(lambda: self.set_all(Qt.CheckState.Unchecked))
+        self.add = QPushButton()
+        self.add.setDefault(True)
+        self.add.clicked.connect(self.accept)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel(intro or "These video files were found. Untick any you don't want to add."))
+        lay.addWidget(self.list, 1)
+        top = QHBoxLayout(); top.addWidget(all_btn); top.addWidget(none_btn); top.addStretch(1); top.addWidget(self.count)
+        lay.addLayout(top)
+        row = QHBoxLayout(); row.addStretch(1); row.addWidget(cancel); row.addWidget(self.add)
+        lay.addLayout(row)
+        self.update_count()
+
+    def checkable_items(self):
+        return [self.list.item(i) for i in range(self.list.count())
+                if self.list.item(i).flags() & Qt.ItemFlag.ItemIsUserCheckable]
+
+    def set_all(self, state):
+        for item in self.checkable_items():
+            item.setCheckState(state)
+
+    def selected(self):
+        return [it.data(Qt.ItemDataRole.UserRole) for it in self.checkable_items()
+                if it.checkState() == Qt.CheckState.Checked]
+
+    def update_count(self, *_):
+        n, total = len(self.selected()), len(self.checkable_items())
+        known = self.list.count() - total
+        self.count.setText(f"{n} of {total} selected" + (f"  ({known} already in the library)" if known else ""))
+        self.add.setText(f"Add {n} video{'s' if n != 1 else ''}")
+        self.add.setEnabled(n > 0)
+
+
+# ----------------------------------------------------------------------------
 # Fix paths dialog
 # ----------------------------------------------------------------------------
 class FixPathsDialog(QDialog):
@@ -2653,10 +2717,41 @@ class MainWindow(QMainWindow):
         self.add_paths(files)
 
     def add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Add all videos in folder", str(Path.home()))
+        folder = QFileDialog.getExistingDirectory(self, "Add videos from folder", str(Path.home()))
         if folder:
             paths = [p for p in Path(folder).rglob("*") if p.suffix.lower() in VIDEO_EXTS]
-            self.add_paths(paths)
+            self.add_with_preview(paths, root=Path(folder), what=f"in {folder}")
+
+    def add_with_preview(self, paths, root=None, what=""):
+        """Show the video files that would be added (a folder and its subfolders), let the user untick
+        the ones they don't want, then add the rest."""
+        known_paths = {str(Path(p).resolve()) for _, p, _ in self.lib.videos()}
+        known_ids = {i for i in (file_identity(p) for _, p, _ in self.lib.videos()) if i}
+        entries = []
+        for p in paths:
+            p = Path(p)
+            if p.suffix.lower() not in VIDEO_EXTS or not p.is_file():
+                continue
+            try:
+                size = p.stat().st_size
+            except OSError:
+                size = None
+            try:
+                shown = str(p.relative_to(root)) if root else p.name
+            except ValueError:
+                shown = p.name
+            known = str(p.resolve()) in known_paths or file_identity(p) in known_ids
+            entries.append((p, shown, size, known))
+        if not entries:
+            QMessageBox.information(self, "No videos found",
+                                    f"No video files ({', '.join(sorted(VIDEO_EXTS))}) were found {what}.")
+            return
+        n_sub = len({Path(shown).parent for _, shown, _, _ in entries if Path(shown).parent != Path(".")})
+        intro = (f"{len(entries)} video file(s) found {what}" + (f", in {n_sub} subfolder(s)" if n_sub else "") +
+                 ". Untick any you don't want to add.")
+        dlg = AddVideosDialog(entries, self, "Add videos from folder", intro)
+        if dlg.exec():
+            self.add_paths(dlg.selected())
 
     def add_paths(self, paths):
         paths = [p for p in paths if Path(p).suffix.lower() in VIDEO_EXTS]
@@ -3483,11 +3578,19 @@ class MainWindow(QMainWindow):
             e.acceptProposedAction()
 
     def dropEvent(self, e):
-        paths = []
+        paths, folders = [], []
         for u in e.mimeData().urls():
             p = Path(u.toLocalFile())
-            paths += [q for q in p.rglob("*")] if p.is_dir() else [p]
-        self.add_paths(paths)
+            if p.is_dir():
+                folders.append(p)
+                paths += [q for q in p.rglob("*")]
+            else:
+                paths.append(p)
+        if folders:
+            self.add_with_preview(paths, root=folders[0].parent if len(folders) > 1 else folders[0],
+                                  what="in the dropped folder(s)")
+        else:
+            self.add_paths(paths)
 
 
 def install_error_handler(get_window):

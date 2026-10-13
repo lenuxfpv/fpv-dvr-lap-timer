@@ -193,7 +193,10 @@ LAPS      FASTEST     FASTEST 3
 
 ## Workflow
 
-1. **Add videos** with *Add videos…*, *Add folder…* (scans subfolders), or drag and drop.
+1. **Add videos** with *Add videos…*, *Add folder…* (scans subfolders), or drag and drop. For a folder (chosen
+   or dropped) a list of every video file found, with its subfolder and size, is shown first: all are ticked,
+   untick the ones you don't want (or *Select none* / *Select all*) and click *Add N videos*. Files already in
+   the library are listed greyed out and are not added again.
 2. Select videos and click **Track / date…** to set a track name and session date (see below).
 3. Double-click a video to open it.
 4. Play or scrub to the moment you pass through the gate and press **Z** (or the green button; you can change the key, see below).
@@ -398,6 +401,10 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- **Add folder** (and dropping a folder) now shows every video file found in it and its subfolders first, so you
+  can untick the ones you don't want before they are added.
 
 ### 1.7.1
 - Export video: the audio file used last time is remembered and filled in again (like the pictures).
