@@ -48,7 +48,7 @@ bundle them). The build also stamps the app's version (`VERSION` in `lap_timer.p
 Properties > Details tab.
 
 The same exe is built automatically by the **Build Windows exe** GitHub Actions workflow
-(`.github/workflows/build-windows.yml`): run it from the repo's Actions tab, or push a tag like `v1.1.3`
+(`.github/workflows/build-windows.yml`): run it from the repo's Actions tab, or push a tag like `v1.1.4`
 to also publish a release. It starts the exe as a smoke test and checks the stamped version. ffmpeg is not
 bundled in that build, so put it in a `bin` folder next to the exe or on PATH. If ffmpeg or ffprobe can't be
 found when the app starts, it offers to install ffmpeg with winget (Windows) or points you to the install
@@ -294,6 +294,13 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 
 Releases and their `FPVLapTimer.exe` downloads are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- The app checks for ffmpeg/ffprobe on start-up and offers to install ffmpeg with winget (Windows) or
+  shows the install command / download page; **Help → Install ffmpeg…** does the same any time, and a
+  freshly installed ffmpeg is picked up without restarting.
+- `install.bat` adds an "FPV Lap Timer" entry to Settings > Apps so it can be uninstalled from Windows.
+- Fixed `install.ps1` hiding winget's output and treating failed installs as successful.
 
 ### 1.1.4
 - README: added this changelog and refreshed the example release tag. No changes to the app itself.
