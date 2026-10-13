@@ -1,6 +1,6 @@
 # FPV DVR Lap Timer
 
-Version 1.10.0 (shown in the window title and **Help → About**).
+Version 1.10.1 (shown in the window title and **Help → About**).
 
 **Download (Windows):** [FPVDVRLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer-Setup.exe)
 (installer) · [FPVDVRLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer.exe)
@@ -366,7 +366,7 @@ The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapT
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
 tags remain), so this list is the record of what changed in each version.
 
-### Unreleased
+### 1.10.1
 - Export video: the app now checks, before starting, that your ffmpeg has the `drawtext` filter (needed for the
   lap timer overlay) and explains the fix if it is missing, instead of failing with an ffmpeg error.
 
