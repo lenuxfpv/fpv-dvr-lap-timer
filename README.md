@@ -286,3 +286,23 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 - *Remove* only deletes the video from the library (and its marks); the file is untouched.
 - Playback of `.ts` files uses Qt's ffmpeg backend. If a file won't play, check the status bar for
   the player error.
+
+## Changelog
+
+Releases and their `FPVLapTimer.exe` downloads are on the
+[Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### 1.1.3
+- **Fix paths…** now lists every folder that has missing videos, one row each, so videos stored in
+  different folders can be re-pointed to different new folders in one go (blank rows are skipped).
+- Uninstalling (`install.sh --uninstall` / `install.bat -Uninstall`) asks whether to also delete the
+  cached smooth-scrub copies to free disk space; `--clear-cache` / `-ClearCache` skips the question.
+
+### 1.1.2
+- Build workflow updated to current GitHub Actions versions (no more Node 20 deprecation warning).
+
+### 1.1.1
+- The Windows installer (`install.bat`) now offers to install a missing Python or ffmpeg with winget.
+
+### 1.1.0
+- First release.
