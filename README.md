@@ -240,8 +240,9 @@ times, so they are identical whichever version you used. More about the copies:
   only if the file itself changes or you clear the cache. Two different videos with the same name,
   size and date would share a copy, which in practice does not happen.
 - Untick *Use smooth copy* to go back to the original at any time.
-- **Right-click** a video in the library to **Delete smooth copy** (just that video's copy, once you have finished
-  marking it) and to tick **🔒 Don't auto-build smooth copy**. A locked video is skipped by *Build when adding*,
+- **Right-click** a video in the library to **Delete smooth copy and lock** (just that video's copy, once you have finished
+  marking it; it also ticks the lock so the copy isn't rebuilt) or to tick **🔒 Don't auto-build smooth copy** on
+  its own. A locked video is skipped by *Build when adding*,
   *Auto-build* and *Build smooth copies (N)*, and shows a 🔒 on its card. The *Build smooth-scrub copy* button under
   the player still builds it when you ask directly. Both work on a multi-selection, and the lock is saved in the
   library.

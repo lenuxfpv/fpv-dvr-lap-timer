@@ -3114,7 +3114,8 @@ class MainWindow(QMainWindow):
         menu.addAction("Track && session date…").triggered.connect(self.edit_details)
         menu.addSeparator()
         copies = [v for v in vids if proxy_path(paths[v]).exists()]
-        delete = menu.addAction("Delete smooth copy" if len(vids) == 1 else f"Delete smooth copies ({len(copies)})")
+        delete = menu.addAction("Delete smooth copy and lock" if len(vids) == 1
+                                else f"Delete smooth copies and lock ({len(copies)})")
         delete.setEnabled(bool(copies))
         delete.triggered.connect(lambda: self.delete_proxies(vids))
         locked = self.lib.proxy_locked_ids()
@@ -3126,7 +3127,8 @@ class MainWindow(QMainWindow):
         return menu
 
     def delete_proxies(self, vids):
-        """Delete the smooth copies of the given videos (the videos and their marks are untouched)."""
+        """Delete the smooth copies of the given videos (the videos and their marks are untouched) and lock the
+        videos, so Auto-build doesn't make the copies again."""
         paths = {v: p for v, p, _ in self.lib.videos()}
         files = {proxy_path(paths[v]) for v in vids if v in paths}
         files = [f for f in files if f.exists()]
@@ -3135,7 +3137,9 @@ class MainWindow(QMainWindow):
         size = sum(f.stat().st_size for f in files) / 1e6
         if QMessageBox.question(self, "Delete smooth copy",
                                 f"Delete {len(files)} smooth-scrub cop{'y' if len(files) == 1 else 'ies'} "
-                                f"({size:.0f} MB)?\nYour videos and marks are not affected; copies can be rebuilt."
+                                f"({size:.0f} MB)?\nYour videos and marks are not affected; copies can be rebuilt.\n\n"
+                                "The video will also be locked (🔒) so Auto-build doesn't make the copy again. "
+                                "Untick 🔒 in the right-click menu to undo that."
                                 ) != QMessageBox.StandardButton.Yes:
             return
         doomed = {paths[v] for v in vids if v in paths}
@@ -3147,14 +3151,14 @@ class MainWindow(QMainWindow):
             self.player.setSource(QUrl())          # release the file before deleting it
         for f in files:
             f.unlink(missing_ok=True)
+        self.lib.set_proxy_locked(vids, True)
         if self.cur_path in doomed:
             self.load_source(keep_pos=self.cursor_ms)
         self.refresh_library()
         self.reselect(vids)
         self.update_proxy_ui()
-        self.statusBar().showMessage(f"Deleted {len(files)} smooth cop{'y' if len(files) == 1 else 'ies'}"
-                                     + ("; lock the video to stop Auto-build making it again"
-                                        if self.auto_proxy.isChecked() else ""), 8000)
+        self.statusBar().showMessage(f"Deleted {len(files)} smooth cop{'y' if len(files) == 1 else 'ies'} and locked "
+                                     "the video(s) so they are not rebuilt automatically", 8000)
 
     def set_proxy_lock(self, vids, locked):
         """Lock (or unlock) automatic smooth-copy building for the given videos."""
