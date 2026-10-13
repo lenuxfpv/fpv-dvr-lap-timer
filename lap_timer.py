@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-VERSION = "1.10.3"
+VERSION = "1.10.4"
 AUTHOR = "LenuxFPV"
 APP_NAME = "FPV DVR Lap Timer"        # shown to users
 APP_ID = "fpv-dvr-lap-timer"           # folder / settings name
