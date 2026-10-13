@@ -1,12 +1,19 @@
 # FPV Lap Timer
 
-Version 1.3.0 (shown in the window title and **Help → About**).
+Version 1.4.0 (shown in the window title and **Help → About**).
 
 Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
 start gate, and get lap times, fastest lap and your fastest run of consecutive laps (3 by default, 2-10 if you prefer). Videos are kept in a
 library grouped by track and session date.
 
-## What's new in 1.3
+## What's new in 1.4
+
+- **Fastest run of N laps:** pick how many consecutive laps count (2-10, default 3) with **Fastest run of:** in
+  the right panel. The library cards, stats, charts and the video export all follow it. See
+  [Reports](#reports). The export's suggested file name also drops the minutes when the total is under a
+  minute.
+
+### Also new in 1.3
 
 - **Empty tracks, rename and delete:** the library's track dropdown has **＋ New track…** to create a track
   before it has any videos, and **Rename this track…** / **Delete this track…** for the selected one.
@@ -347,7 +354,7 @@ Makes a shareable video of your fastest N consecutive laps (N = *Fastest run of*
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
 
-### Unreleased
+### 1.4.0
 - **Fastest run of N laps:** choose how many consecutive laps (2-10, default 3) the "fastest N" figures and
   the video export use, instead of always 3. One global setting in the right panel.
 - The suggested export file name leaves out the minutes when the total is under a minute
