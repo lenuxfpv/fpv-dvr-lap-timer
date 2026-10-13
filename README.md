@@ -1,6 +1,6 @@
 # FPV DVR Lap Timer
 
-Version 1.10.2 (shown in the window title and **Help → About**).
+Version 1.10.3 (shown in the window title and **Help → About**).
 
 **Download (Windows):** [FPVDVRLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer-Setup.exe)
 (installer) · [FPVDVRLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer.exe)
@@ -366,7 +366,7 @@ The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapT
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
 tags remain), so this list is the record of what changed in each version.
 
-### Unreleased
+### 1.10.3
 - Export video: when the export finishes, an **Open the folder** link under the *Done* message opens the folder
   the video was saved in.
 
