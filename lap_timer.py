@@ -128,6 +128,12 @@ def fmt(ms):
     return f"{m}:{rem / 1000:06.3f}"
 
 
+def fmt_overlay(ms):
+    """Like fmt, but without the minutes while the time is under a minute: s.mmm"""
+    m, rem = divmod(int(round(ms)), 60000)
+    return f"{m}:{rem / 1000:06.3f}" if m else f"{rem / 1000:.3f}"
+
+
 def vname(path):
     """File name of a stored path, whichever OS style (/ or \\) it was saved in."""
     return re.split(r"[\\/]", str(path))[-1]
@@ -852,10 +858,16 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             opts.append(f"enable='{enable}'")
         return "drawtext=" + ":".join(opts)
 
-    def running(start):                                    # m:ss.mmm of the time since `start`, live
+    def running(start, minutes):                           # time since `start`, live: m:ss.mmm, or s.mmm under a minute
         x = f"(max(t-{start + 0.0006:.6f}\\,0)+0.0004)"      # marks are rounded to 1 ms: the gate frame reads 0:00.000
-        return (f"%{{eif\\:floor({x}/60)\\:d\\:1}}\\:%{{eif\\:mod(floor({x})\\,60)\\:d\\:2}}"
-                f".%{{eif\\:mod(floor({x}*1000)\\,1000)\\:d\\:3}}")
+        secs = f"%{{eif\\:mod(floor({x})\\,60)\\:d\\:{2 if minutes else 1}}}"
+        ms = f".%{{eif\\:mod(floor({x}*1000)\\,1000)\\:d\\:3}}"
+        return (f"%{{eif\\:floor({x}/60)\\:d\\:1}}\\:" if minutes else "") + secs + ms
+
+    def timer(start, en, *args, **kw):                     # running clock; the minutes appear once it reaches 60 s
+        t60 = f"{start + 60.0002:.6f}"                     # (x reaches 60 at start + 60.0002)
+        return [dt(running(start, False), *args, enable=f"({en})*lt(t,{t60})", **kw),
+                dt(running(start, True), *args, enable=f"({en})*gte(t,{t60})", **kw)]
 
     y_lbl, y_big = mar, mar + round(fs_med * 1.7)
     y_list = y_big + round(fs_big * 1.75)
@@ -868,12 +880,12 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
         b = s[k + 1] - eps
         en = f"gte(t,{a:.6f})*lt(t,{b:.6f})"
         parts.append(dt(f"LAP {k + 1} / {n}", mar, y_lbl, fs_med, enable=en))
-        parts.append(dt(running(s[k]), mar, y_big, fs_big, enable=en))
+        parts += timer(s[k], en, mar, y_big, fs_big)
     en_end = f"gte(t,{s[n] - eps:.6f})"                    # after the last gate: hold the last lap
     parts.append(dt(f"LAP {n} / {n}", mar, y_lbl, fs_med, enable=en_end))
-    parts.append(dt(fmt(win["lap_ms"][n - 1]), mar, y_big, fs_big, enable=en_end))
+    parts.append(dt(fmt_overlay(win["lap_ms"][n - 1]), mar, y_big, fs_big, enable=en_end))
     for k in range(n):                                     # finished laps list, one line appears per lap
-        parts.append(dt(f"LAP {k + 1}   {fmt(win['lap_ms'][k])}", mar, y_list + round(k * line_h), fs_list,
+        parts.append(dt(f"LAP {k + 1}   {fmt_overlay(win['lap_ms'][k])}", mar, y_list + round(k * line_h), fs_list,
                         enable=f"gte(t,{s[k + 1] - eps:.6f})"))
     # top right: track name, then the running total of the N laps
     label = _filter_text(" \u00b7 ".join(x for x in (win.get("track") or "", win.get("date") or "") if x))
@@ -881,11 +893,10 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
         parts.append(dt(label, "w-text_w-%d" % mar, y_lbl, fs_small))
     y_tot = y_lbl + round(fs_small * 1.9) if label else y_lbl
     parts.append(dt(f"{n} LAPS", "w-text_w-%d" % mar, y_tot, fs_med))
-    parts.append(dt(running(s[0]), "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big,
-                    enable=f"lt(t,{s[n] - eps:.6f})"))
-    parts.append(dt(fmt(win["total_ms"]), "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big,
+    parts += timer(s[0], f"lt(t,{s[n] - eps:.6f})", "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big)
+    parts.append(dt(fmt_overlay(win["total_ms"]), "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big,
                     color="#FFD54F", enable=en_end))
-    parts.append(dt(f"FASTEST {n} CONSECUTIVE LAPS   {fmt(win['total_ms'])}", "(w-text_w)/2", f"h-text_h-{mar}",
+    parts.append(dt(f"FASTEST {n} CONSECUTIVE LAPS   {fmt_overlay(win['total_ms'])}", "(w-text_w)/2", f"h-text_h-{mar}",
                     round(fs_med * 1.25), color="#FFD54F", enable=en_end, box=0.65))
 
     matrix = {"bt470bg": "bt470", "smpte170m": "smpte170m", "bt709": "bt709", "bt2020nc": "bt2020",
