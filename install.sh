@@ -4,7 +4,9 @@
 #
 #   ./install.sh                 install (menu launcher)
 #   ./install.sh --desktop       also put a shortcut on the Desktop
-#   ./install.sh --uninstall     remove the launcher and icon (keeps your library and videos)
+#   ./install.sh --uninstall     remove the launcher and icon (keeps your library and videos);
+#                                asks whether to also delete the smooth-scrub copies
+#   ./install.sh --uninstall --clear-cache    same, and delete the copies without asking
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,6 +15,7 @@ APPS="$DATA/applications"
 ICONS="$DATA/icons/hicolor/scalable/apps"
 DESKTOP_FILE="$APPS/fpv-lap-timer.desktop"
 ICON_FILE="$ICONS/fpv-lap-timer.svg"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fpv-lap-timer"
 
 say()  { printf '\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33mWarning:\033[0m %s\n' "$*" >&2; }
@@ -28,7 +31,22 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     rm -f "$DESKTOP_FILE" "$ICON_FILE" "$(desktop_dir)/fpv-lap-timer.desktop"
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" || true
     say "Launcher removed. Your library ($DATA/fpv-lap-timer) and videos were not touched."
-    echo "Smooth-scrub copies are cached in ${XDG_CACHE_HOME:-$HOME/.cache}/fpv-lap-timer - delete that folder to free the space."
+    if [[ -d "$CACHE" ]]; then
+        size="$(du -sh "$CACHE" 2>/dev/null | cut -f1)"
+        clear=no
+        if [[ "${2:-}" == "--clear-cache" ]]; then
+            clear=yes
+        elif [[ -t 0 ]]; then
+            read -r -p "Also delete the smooth-scrub copies in $CACHE (${size:-unknown size}) to free disk space? They can be rebuilt. [y/N] " ans
+            [[ "$ans" =~ ^[Yy] ]] && clear=yes
+        fi
+        if [[ "$clear" == yes ]]; then
+            rm -rf "$CACHE"
+            say "Smooth-scrub copies deleted."
+        else
+            echo "Smooth-scrub copies kept in $CACHE (${size:-unknown size}) - delete that folder to free the space."
+        fi
+    fi
     [[ -d "$DIR/.venv" ]] && echo "Delete $DIR/.venv yourself if you no longer need it."
     exit 0
 fi

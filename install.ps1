@@ -1,8 +1,10 @@
 # Install FPV Lap Timer for the current user (Windows).
 #   install.bat                 install (Start Menu shortcut)
 #   install.bat -Desktop        also add a Desktop shortcut
-#   install.bat -Uninstall      remove the shortcuts (keeps your library and videos)
-param([switch]$Desktop, [switch]$Uninstall)
+#   install.bat -Uninstall      remove the shortcuts (keeps your library and videos);
+#                               asks whether to also delete the smooth-scrub copies
+#   install.bat -Uninstall -ClearCache    same, and delete the copies without asking
+param([switch]$Desktop, [switch]$Uninstall, [switch]$ClearCache)
 $ErrorActionPreference = "Stop"
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\FPV Lap Timer.lnk"
@@ -11,7 +13,21 @@ $DesktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "FPV Lap Timer
 if ($Uninstall) {
     Remove-Item -Force -ErrorAction SilentlyContinue $StartMenu, $DesktopLnk
     Write-Host "Shortcuts removed. Your library ($env:APPDATA\fpv-lap-timer) and videos were not touched."
-    Write-Host "Smooth-scrub copies are cached in $env:LOCALAPPDATA\fpv-lap-timer - delete that folder to free the space."
+    $Cache = Join-Path $env:LOCALAPPDATA "fpv-lap-timer"
+    if (Test-Path $Cache) {
+        $mb = [math]::Round((Get-ChildItem $Cache -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+        $clear = $ClearCache.IsPresent
+        if (-not $clear) {
+            $answer = Read-Host "Also delete the smooth-scrub copies in $Cache ($mb MB) to free disk space? They can be rebuilt. [y/N]"
+            $clear = ($answer -match '^\s*y')
+        }
+        if ($clear) {
+            Remove-Item -Recurse -Force $Cache
+            Write-Host "Smooth-scrub copies deleted."
+        } else {
+            Write-Host "Smooth-scrub copies kept in $Cache ($mb MB) - delete that folder to free the space."
+        }
+    }
     if (Test-Path "$Dir\.venv") { Write-Host "Delete $Dir\.venv yourself if you no longer need it." }
     exit 0
 }

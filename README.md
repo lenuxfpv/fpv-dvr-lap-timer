@@ -25,11 +25,12 @@ the project folder where it is after installing; if you move it, run the install
 ```
 ./install.sh               # menu launcher; uses system PyQt6, or creates a private .venv
 ./install.sh --desktop     # also a Desktop shortcut
-./install.sh --uninstall   # remove launcher + icon (library and videos untouched)
+./install.sh --uninstall   # remove launcher + icon (library and videos untouched); asks about the smooth copies
+./install.sh --uninstall --clear-cache   # ...and delete the smooth copies without asking
 ```
 
 If `ffmpeg` / `ffprobe` is missing, ffmpeg has no libx264, or no bold font is found, the script warns
-you and prints the fix for your distro. Uninstalling leaves your library and the cached smooth copies (`~/.cache/fpv-lap-timer`) alone.
+you and prints the fix for your distro. Uninstalling leaves your library alone and asks whether to also delete the cached smooth copies (`~/.cache/fpv-lap-timer`) to free disk space.
 
 ### Windows
 
@@ -37,8 +38,9 @@ Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop shor
 `install.bat -Uninstall` to remove them). It creates a private `.venv`, installs PyQt6, and adds a
 Start Menu shortcut. Needs Python 3.9+; if Python or ffmpeg is missing it offers to install them with winget (or run `winget install Python.Python.3.12` yourself). For frame rates install
 ffmpeg (`winget install Gyan.FFmpeg`) or copy `ffmpeg.exe` and `ffprobe.exe` into a `bin` folder next
-to the app. Uninstalling removes the shortcuts only; your library and the cached copies
-(`%LOCALAPPDATA%\fpv-lap-timer`) stay. The installer also warns if your ffmpeg lacks libx264.
+to the app. Uninstalling removes the shortcuts and leaves your library alone; it asks whether to also delete the
+cached smooth copies (`%LOCALAPPDATA%\fpv-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`
+deletes them without asking). The installer also warns if your ffmpeg lacks libx264.
 
 Prefer a single `.exe`? Run **`build_windows.bat`** on Windows to produce `dist\FPVLapTimer.exe`
 with PyInstaller (no Python needed to run it; put `ffmpeg.exe` and `ffprobe.exe` in `bin` first to
