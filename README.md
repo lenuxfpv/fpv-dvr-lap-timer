@@ -1,6 +1,6 @@
 # FPV DVR Lap Timer
 
-Version 1.10.9 (shown in the window title and **Help → About**).
+Version 1.10.10 (shown in the window title and **Help → About**).
 
 **Download (Windows):** [FPVDVRLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer-Setup.exe)
 (installer) · [FPVDVRLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer.exe)
