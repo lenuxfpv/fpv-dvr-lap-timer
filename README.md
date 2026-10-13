@@ -277,6 +277,10 @@ dialogs follow the theme too.
   switches to the new (empty) track. Videos you add next (*Add videos…*, *Add folder…* or drag and drop)
   join it. The empty track is remembered in the library (it is included in exports, imports and merges) and
   also shows up under *Assign to track*. Typing a name that already exists just switches to that track.
+- **Rename or delete a track:** with a track selected, the same dropdown also offers **✎ Rename this
+  track…** and **🗑 Delete this track…**. Renaming changes the name on all its videos (typing the name of
+  another existing track offers to merge the two). Deleting asks first; the videos stay in the library with
+  their marks and simply have no track. Works on empty tracks too, so a typo is easy to fix.
 
 ## Reports
 
@@ -331,7 +335,8 @@ Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
 
 ### Unreleased
-- **＋ New track…** in the library's track dropdown creates an empty track you can add videos to.
+- **＋ New track…** in the library's track dropdown creates an empty track you can add videos to, and
+  **Rename this track…** / **Delete this track…** (shown when a track is selected) fix a typo or remove one.
 
 ### 1.2.1
 - **Help → About** shows the author (LenuxFPV).

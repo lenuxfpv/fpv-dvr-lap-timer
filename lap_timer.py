@@ -304,6 +304,25 @@ class Library:
             self.db.execute("INSERT OR IGNORE INTO extra_tracks(name) VALUES(?)", (name,))
             self.db.commit()
 
+    def track_video_count(self, name):
+        return self.db.execute("SELECT COUNT(*) FROM videos WHERE track=?", (name,)).fetchone()[0]
+
+    def rename_track(self, old, new):
+        """Give every video on `old` the name `new` (merging into `new` if it already exists)."""
+        new = new.strip()
+        if not new or new == old:
+            return
+        self.db.execute("UPDATE videos SET track=? WHERE track=?", (new, old))
+        self.db.execute("DELETE FROM extra_tracks WHERE name=?", (old,))
+        self.db.execute("INSERT OR IGNORE INTO extra_tracks(name) VALUES(?)", (new,))
+        self.db.commit()
+
+    def delete_track(self, name):
+        """Remove a track. Its videos stay in the library, with no track."""
+        self.db.execute("UPDATE videos SET track='' WHERE track=?", (name,))
+        self.db.execute("DELETE FROM extra_tracks WHERE name=?", (name,))
+        self.db.commit()
+
     def video_ids(self, track=None):
         """None = every video, '' = videos with no track, otherwise that track's videos."""
         meta = self.all_meta()
@@ -1632,6 +1651,8 @@ class KeysDialog(QDialog):
 
 
 NEW_TRACK = "\x00new-track"      # itemData of the dropdown's "New track…" entry (never a real track name)
+RENAME_TRACK = "\x00rename-track"
+DELETE_TRACK = "\x00delete-track"
 NO_PENDING = object()
 
 ROLE_INFO = Qt.ItemDataRole.UserRole + 1     # dict describing a library entry, painted by LibraryDelegate
@@ -2170,10 +2191,50 @@ class MainWindow(QMainWindow):
 
     # ---- library -----------------------------------------------------------
     def on_track_filter_changed(self):
-        if self.track_filter.currentData() == NEW_TRACK:
+        action = self.track_filter.currentData()
+        if action == NEW_TRACK:
             self.new_empty_track()
+        elif action == RENAME_TRACK:
+            self.rename_current_track()
+        elif action == DELETE_TRACK:
+            self.delete_current_track()
         else:
             self.refresh_library()
+
+    def rename_current_track(self):
+        old = self.pending_filter = self.last_filter
+        if not old:
+            return self.refresh_library()
+        text, ok = QInputDialog.getText(self, "Rename track", f"New name for '{old}':", text=old)
+        new = " ".join(text.split()) if ok else ""
+        if new and new != old:
+            same = next((t for t in self.lib.tracks() if t.lower() == new.lower() and t != old), None)
+            if same is not None:
+                n = self.lib.track_video_count(old)
+                if QMessageBox.question(
+                        self, "Merge tracks",
+                        f"A track named '{same}' already exists.\n\nMerge '{old}' ({n} video(s)) into it?"
+                        ) != QMessageBox.StandardButton.Yes:
+                    return self.refresh_library()
+                new = same
+            self.lib.rename_track(old, new)
+            self.pending_filter = new
+            self.statusBar().showMessage(f"Track renamed to '{new}'", 5000)
+        self.refresh_library()
+
+    def delete_current_track(self):
+        name = self.pending_filter = self.last_filter
+        if not name:
+            return self.refresh_library()
+        n = self.lib.track_video_count(name)
+        what = (f"Delete the empty track '{name}'?" if n == 0 else
+                f"Delete the track '{name}'?\n\nIts {n} video(s) stay in the library (and keep their marks) "
+                "but will have no track.")
+        if QMessageBox.question(self, "Delete track", what) == QMessageBox.StandardButton.Yes:
+            self.lib.delete_track(name)
+            self.pending_filter = None                       # back to All tracks
+            self.statusBar().showMessage(f"Track '{name}' deleted", 5000)
+        self.refresh_library()
 
     def new_empty_track(self):
         """The dropdown's '＋ New track…' entry: make a track with no videos yet and switch to it, so
@@ -2210,6 +2271,9 @@ class MainWindow(QMainWindow):
             self.track_filter.addItem("(no track)", "")
         self.track_filter.insertSeparator(self.track_filter.count())
         self.track_filter.addItem("＋ New track…", NEW_TRACK)
+        if current and current in self.lib.tracks():             # a real track is showing: offer to change it
+            self.track_filter.addItem("✎ Rename this track…", RENAME_TRACK)
+            self.track_filter.addItem("🗑 Delete this track…", DELETE_TRACK)
         i = self.track_filter.findData(current) if current is not None else 0
         self.track_filter.setCurrentIndex(max(i, 0))
         self.track_filter.blockSignals(False)
