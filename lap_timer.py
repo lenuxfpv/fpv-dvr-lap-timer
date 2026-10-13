@@ -3418,11 +3418,12 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e):
         self.build_queue.clear()
-        if self.build:
-            self.build["cancelled"] = True
-            self.build["proc"].kill()
-            self.build["proc"].waitForFinished(2000)
-            self.build["part"].unlink(missing_ok=True)
+        build = self.build        # killing the process runs its finish handler, which clears self.build
+        if build:
+            build["cancelled"] = True
+            build["proc"].kill()
+            build["proc"].waitForFinished(2000)
+            build["part"].unlink(missing_ok=True)
         super().closeEvent(e)
 
     # ---- transport ---------------------------------------------------------

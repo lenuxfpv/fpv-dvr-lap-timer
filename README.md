@@ -374,6 +374,7 @@ The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapT
 tags remain), so this list is the record of what changed in each version.
 
 ### Unreleased
+- Fixed an error (`'NoneType' object is not subscriptable`) when closing the app while a smooth copy was still building.
 - README: a screenshot of the app at the top.
 - **Help → About** now has links that open the library folder (where `library.db` lives) and the smooth-copies folder.
 
