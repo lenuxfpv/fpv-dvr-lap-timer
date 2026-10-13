@@ -42,37 +42,35 @@ It runs on Windows (installer or portable exe) and Linux, and reads `.ts`, `.mp4
 
 ## Install
 
-On Windows the easiest route is the `FPVDVRLapTimer-Setup.exe` installer (see *Windows* below), which needs
-nothing else installed. To run from source (Linux, or Windows without the installer) you need Python 3.9+,
-**PyQt6** and (strongly recommended) **ffmpeg**, which provides two programs:
-`ffprobe` reads each video's frame rate (without it 30 fps is assumed and frame-stepping is off on other
-frame rates) and `ffmpeg` builds the smooth-scrub copies (without it scrubbing only jumps between
-keyframes, see *Navigating the video*). The app works without ffmpeg, just less smoothly. Your ffmpeg
-must include the **libx264** encoder (used for the smooth copies and the video export); Fedora's default
-`ffmpeg-free` does not, so on Fedora enable RPM Fusion and run `sudo dnf swap ffmpeg-free ffmpeg
---allowerasing`. The Debian/Ubuntu `ffmpeg` and the Windows `winget install Gyan.FFmpeg` builds include it.
-The video export also needs a bold font file, normally already installed (DejaVu Sans or Liberation on
-Linux, Arial on Windows). The install
-scripts check all of this for you and add a menu launcher pointing at the folder you run them from. Keep
-the project folder where it is after installing; if you move it, run the installer again.
+| You use | Easiest route |
+|---|---|
+| Windows | Download **`FPVDVRLapTimer-Setup.exe`** from the [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases). No Python needed. |
+| Linux | Run `./install.sh` from the project folder (needs Python 3.9+). |
+| Either, from source | `python3 lap_timer.py` with Python 3.9+ and PyQt6 installed. |
 
-### Linux
+The one thing worth adding yourself is **ffmpeg**; see *What it needs* just below.
 
-```
-./install.sh               # menu launcher; uses system PyQt6, or creates a private .venv
-./install.sh --desktop     # also a Desktop shortcut
-./install.sh --uninstall   # remove launcher + icon (library and videos untouched); asks about the smooth copies
-./install.sh --uninstall --clear-cache   # ...and delete the smooth copies without asking
-```
+### What it needs
 
-If `ffmpeg` / `ffprobe` is missing, ffmpeg has no libx264, or no bold font is found, the script warns
-you and prints the fix for your distro. Uninstalling leaves your library alone and asks whether to also delete the cached smooth copies (`~/.cache/fpv-dvr-lap-timer`) to free disk space.
+- **Python 3.9+ and PyQt6**, only when running from source. The Windows installer and exe bundle both.
+- **ffmpeg** (strongly recommended). It provides two programs, and the app works without them, just less smoothly:
+  - `ffprobe` reads each video's frame rate. Without it the app assumes 30 fps, and frame-stepping is off for other
+    frame rates.
+  - `ffmpeg` builds the smooth-scrub copies. Without it scrubbing only jumps between keyframes (see *Navigating the
+    video*).
+- **The libx264 encoder** inside your ffmpeg, used for the smooth copies and the video export. Debian/Ubuntu's
+  `ffmpeg` and the Windows `winget install Gyan.FFmpeg` build include it. Fedora's default `ffmpeg-free` does not:
+  enable RPM Fusion and run `sudo dnf swap ffmpeg-free ffmpeg --allowerasing`.
+- **A bold font file** for the video export's timer, normally already installed (DejaVu Sans or Liberation on Linux,
+  Arial on Windows).
+
+The install scripts check all of this and tell you how to fix anything missing.
 
 ### Windows
 
 **Installer (easiest).** Download **`FPVDVRLapTimer-Setup.exe`** from the
-[Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases) and run it. No Python is needed and no admin
-rights: it installs to `%LOCALAPPDATA%\Programs\FPV DVR Lap Timer`, adds a Start Menu shortcut (and a Desktop one if
+[Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases) and run it. It needs no Python and no admin
+rights. It installs to `%LOCALAPPDATA%\Programs\FPV DVR Lap Timer`, adds a Start Menu shortcut (and a Desktop one if
 you tick it) and an "FPV DVR Lap Timer" entry in Settings > Apps, where you can uninstall it. The uninstaller asks
 whether to also delete the smooth-scrub copies; your library and videos are never touched. The release also has the
 bare `FPVDVRLapTimer.exe` if you prefer a portable copy (it has no Apps entry).
@@ -92,10 +90,11 @@ freshly installed ffmpeg without a restart. You can also install it yourself (`w
 shortcut too). It creates a private `.venv`, installs PyQt6, and adds a Start Menu shortcut and an "FPV DVR Lap Timer"
 entry in Settings > Apps that runs the uninstall. It needs Python 3.9+; if Python or ffmpeg is missing it offers to
 install them with winget (or run `winget install Python.Python.3.12` yourself), and it warns if your ffmpeg lacks
-libx264. `install.bat -Uninstall` removes the shortcuts and leaves your library alone; it asks whether to also delete
-the cached smooth copies (`%LOCALAPPDATA%\fpv-dvr-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`
-deletes them without asking). If a script fails, the error message says which step; the app itself needs only
-`pip install PyQt6`.
+libx264. If a script fails, the error message says which step; the app itself needs only `pip install PyQt6`.
+
+- `install.bat -Uninstall` removes the shortcuts and leaves your library alone. It asks whether to also delete the
+  cached smooth copies (`%LOCALAPPDATA%\fpv-dvr-lap-timer`) to free disk space.
+- `install.bat -Uninstall -ClearCache` deletes them without asking.
 
 **Building it yourself.** Run **`build_windows.bat`** on Windows to produce `dist\FPVDVRLapTimer.exe` with PyInstaller
 (no Python needed to run it; put `ffmpeg.exe` and `ffprobe.exe` in `bin` first to bundle them). The build stamps the
@@ -105,6 +104,21 @@ app's version (`VERSION` in `lap_timer.py`) into the exe's Properties > Details 
 `VERSION` in `lap_timer.py`) to also publish a release. The workflow starts the exe as a smoke test, checks the
 stamped version, and test-installs and uninstalls the installer silently, checking that the Apps entry appears and
 goes away.
+
+### Linux
+
+```
+./install.sh               # menu launcher; uses system PyQt6, or creates a private .venv
+./install.sh --desktop     # also a Desktop shortcut
+./install.sh --uninstall   # remove launcher + icon (library and videos untouched); asks about the smooth copies
+./install.sh --uninstall --clear-cache   # ...and delete the smooth copies without asking
+```
+
+The script adds an application-menu launcher that points at the folder you run it from, so keep the project folder
+where it is after installing (if you move it, run the script again). If `ffmpeg` / `ffprobe` is missing, your ffmpeg
+has no libx264, or no bold font is found, it warns you and prints the fix for your distro. Uninstalling leaves your
+library alone and asks whether to also delete the cached smooth copies (`~/.cache/fpv-dvr-lap-timer`) to free disk
+space.
 
 ### Run without installing
 
@@ -398,6 +412,7 @@ The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapT
 tags remain), so this list is the record of what changed in each version.
 
 ### Unreleased
+- README: tidied the Install section (a quick chooser, one *What it needs* list, and the Windows, Linux and source routes in separate parts).
 - README: the screenshot and *Why I made it* now sit together at the top, followed by a clearer description of what the app is and what it can do.
 
 ### 1.10.6
