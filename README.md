@@ -1,6 +1,6 @@
 # FPV Lap Timer
 
-Version 1.4.0 (shown in the window title and **Help → About**).
+Version 1.4.1 (shown in the window title and **Help → About**).
 
 **Download (Windows):** [FPVLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-lap-timer/releases/latest/download/FPVLapTimer-Setup.exe)
 (installer) · [FPVLapTimer.exe](https://github.com/lenuxfpv/fpv-lap-timer/releases/latest/download/FPVLapTimer.exe)
@@ -15,7 +15,7 @@ library grouped by track and session date.
 - **Fastest run of N laps:** pick how many consecutive laps count (2-10, default 3) with **Fastest run of:** in
   the right panel. The library cards, stats, charts and the video export all follow it. See
   [Reports](#reports). The export's suggested file name also drops the minutes when the total is under a
-  minute.
+  minute. In the export dialog you can also set a **Start padding** and reset both paddings to their defaults.
 
 ### Also new in 1.3
 
@@ -360,7 +360,7 @@ Makes a shareable video of your fastest N consecutive laps (N = *Fastest run of*
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
 
-### Unreleased
+### 1.4.1
 - Export video: new **Start padding** setting (footage before the first gate) next to End padding, and a
   **Reset padding** button that restores both to their defaults (1 s before, 2 s after).
 
