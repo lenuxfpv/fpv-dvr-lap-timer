@@ -67,12 +67,8 @@ jobs:
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP "fpv-install"
-          # pretend an older version (with the old exe name) is installed: the upgrade must remove its exe
-          New-Item -ItemType Directory -Force $dir | Out-Null
-          Set-Content "$dir\FPVLapTimer.exe" "old"
           Start-Process dist\FPVDVRLapTimer-Setup.exe -Wait -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$dir"
           if (-not (Test-Path "$dir\FPVDVRLapTimer.exe")) { throw "installer did not copy FPVDVRLapTimer.exe" }
-          if (Test-Path "$dir\FPVLapTimer.exe") { throw "installer left the old FPVLapTimer.exe behind" }
           $uninst = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
           $entry = Get-ChildItem $uninst | Get-ItemProperty | Where-Object { $_.DisplayName -like "FPV DVR Lap Timer*" }
           if (-not $entry) { throw "no Settings > Apps entry was created" }

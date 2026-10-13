@@ -16,10 +16,6 @@ ICONS="$DATA/icons/hicolor/scalable/apps"
 DESKTOP_FILE="$APPS/fpv-dvr-lap-timer.desktop"
 ICON_FILE="$ICONS/fpv-dvr-lap-timer.svg"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fpv-dvr-lap-timer"
-# files and folders left by versions before 1.10 (the app used to be called fpv-lap-timer)
-OLD_DESKTOP_FILE="$APPS/fpv-lap-timer.desktop"
-OLD_ICON_FILE="$ICONS/fpv-lap-timer.svg"
-OLD_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fpv-lap-timer"
 
 say()  { printf '\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33mWarning:\033[0m %s\n' "$*" >&2; }
@@ -32,13 +28,11 @@ desktop_dir() {
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-    rm -f "$DESKTOP_FILE" "$ICON_FILE" "$OLD_DESKTOP_FILE" "$OLD_ICON_FILE" \
-          "$(desktop_dir)/fpv-dvr-lap-timer.desktop" "$(desktop_dir)/fpv-lap-timer.desktop"
+    rm -f "$DESKTOP_FILE" "$ICON_FILE" "$(desktop_dir)/fpv-dvr-lap-timer.desktop"
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" || true
     say "Launcher removed. Your library ($DATA/fpv-dvr-lap-timer) and videos were not touched."
     caches=()
     [[ -d "$CACHE" ]] && caches+=("$CACHE")
-    [[ -d "$OLD_CACHE" ]] && caches+=("$OLD_CACHE")
     if (( ${#caches[@]} )); then
         size="$(du -shc "${caches[@]}" 2>/dev/null | tail -1 | cut -f1)"
         clear=no
@@ -119,7 +113,6 @@ esc() {
 }
 
 mkdir -p "$APPS" "$ICONS"
-rm -f "$OLD_DESKTOP_FILE" "$OLD_ICON_FILE" "$(desktop_dir)/fpv-lap-timer.desktop"   # launcher from an older version
 cp "$DIR/fpv-dvr-lap-timer.svg" "$ICON_FILE"
 cat > "$DESKTOP_FILE" <<DESKTOP
 [Desktop Entry]

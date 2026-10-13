@@ -10,27 +10,23 @@ $ErrorActionPreference = "Stop"
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\FPV DVR Lap Timer.lnk"
 $DesktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "FPV DVR Lap Timer.lnk"
-# shortcuts from before the app was renamed (FPV Lap Timer)
-$OldLinks = @((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\FPV Lap Timer.lnk"),
-              (Join-Path ([Environment]::GetFolderPath("Desktop")) "FPV Lap Timer.lnk"))
 # Entry in Settings > Apps (appwiz.cpl). HKCU, so no admin rights are needed.
 $UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FPVLapTimer"
 
 if ($Uninstall) {
-    Remove-Item -Force -ErrorAction SilentlyContinue $StartMenu, $DesktopLnk, $OldLinks
+    Remove-Item -Force -ErrorAction SilentlyContinue $StartMenu, $DesktopLnk
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $UninstallKey
     Write-Host "Shortcuts removed. Your library ($env:APPDATA\fpv-dvr-lap-timer) and videos were not touched."
     $Cache = Join-Path $env:LOCALAPPDATA "fpv-dvr-lap-timer"
-    $OldCache = Join-Path $env:LOCALAPPDATA "fpv-lap-timer"          # left by versions before 1.10
-    if ((Test-Path $Cache) -or (Test-Path $OldCache)) {
-        $mb = [math]::Round((@($Cache, $OldCache) | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -Recurse -File -ErrorAction SilentlyContinue } | Measure-Object Length -Sum).Sum / 1MB)
+    if (Test-Path $Cache) {
+        $mb = [math]::Round((Get-ChildItem $Cache -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
         $clear = $ClearCache.IsPresent
         if (-not $clear) {
             $answer = Read-Host "Also delete the smooth-scrub copies in $Cache ($mb MB) to free disk space? They can be rebuilt. [y/N]"
             $clear = ($answer -match '^\s*y')
         }
         if ($clear) {
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Cache, $OldCache
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Cache
             Write-Host "Smooth-scrub copies deleted."
         } else {
             Write-Host "Smooth-scrub copies kept in $Cache ($mb MB) - delete that folder to free the space."
@@ -154,7 +150,6 @@ function New-Shortcut($path) {
     $lnk.Description = "Mark gate passes in FPV footage and track lap times"
     $lnk.Save()
 }
-Remove-Item -Force -ErrorAction SilentlyContinue $OldLinks
 New-Shortcut $StartMenu
 if ($Desktop) { New-Shortcut $DesktopLnk }
 

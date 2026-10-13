@@ -34,27 +34,7 @@ VERSION = "1.10.6"
 AUTHOR = "LenuxFPV"
 APP_NAME = "FPV DVR Lap Timer"        # shown to users
 APP_ID = "fpv-dvr-lap-timer"           # folder / settings name
-OLD_APP_ID = "fpv-lap-timer"          # what versions before 1.10 used; their data is moved over automatically
 VIDEO_EXTS = {".ts", ".mp4", ".mov", ".mkv", ".m4v", ".avi"}
-
-
-def _app_dir(base):
-    """base/<APP_ID>, first moving a folder left by an older version (base/<OLD_APP_ID>) to the new name.
-    Nothing is copied or deleted: it is one rename, and if that isn't possible (for example the old version is
-    still running and has the database open) the old folder keeps being used until the next start. If both
-    folders already hold data the new one wins and the old one is left alone."""
-    new, old = base / APP_ID, base / OLD_APP_ID
-    if not old.is_dir():
-        return new
-    try:
-        if not new.exists():
-            old.rename(new)
-        elif not any(new.iterdir()):             # an empty leftover: replace it with the old folder
-            new.rmdir()
-            old.rename(new)
-    except OSError:
-        return old
-    return new
 
 
 def data_dir():
@@ -65,7 +45,7 @@ def data_dir():
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    return _app_dir(base)
+    return base / APP_ID
 
 
 def cache_dir():
@@ -76,20 +56,11 @@ def cache_dir():
         base = Path.home() / "Library" / "Caches"
     else:
         base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return _app_dir(base) / "smooth"
+    return base / APP_ID / "smooth"
 
 
 def app_settings():
-    """The app's QSettings. The first time, every setting saved by an older version (under the old name) is
-    copied across, so keyboard shortcuts, theme and export choices carry over."""
-    st = QSettings(APP_ID, "app")
-    if not st.contains("_migrated"):
-        old = QSettings(OLD_APP_ID, "app")
-        for key in old.allKeys():
-            st.setValue(key, old.value(key))
-        st.setValue("_migrated", 1)
-        st.sync()
-    return st
+    return QSettings(APP_ID, "app")
 
 
 def proxy_path(src):
@@ -3043,8 +3014,6 @@ class MainWindow(QMainWindow):
     def key_for(self, kid):
         """The key bound to action `kid` (portable string, '' = none): the saved one, else the default."""
         saved = self.settings.value(f"keys/{kid}")
-        if saved is None and kid == "mark":
-            saved = self.settings.value("mark_key")       # pre-1.2 setting: only the mark key was changeable
         return key_portable(KEY_DEFAULTS[kid] if saved is None else str(saved))
 
     def key_text(self, kid):
@@ -3071,7 +3040,6 @@ class MainWindow(QMainWindow):
                     self.settings.remove(f"keys/{kid}")          # default again: store nothing
                 else:
                     self.settings.setValue(f"keys/{kid}", key)
-            self.settings.remove("mark_key")                     # migrated into keys/mark
             self.apply_keys()
             self.statusBar().showMessage("Keyboard shortcuts saved", 4000)
 
