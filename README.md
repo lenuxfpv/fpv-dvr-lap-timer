@@ -2,9 +2,9 @@
 
 Version 1.9.0 (shown in the window title and **Help → About**).
 
-**Download (Windows):** [FPVLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-lap-timer/releases/latest/download/FPVLapTimer-Setup.exe)
-(installer) · [FPVLapTimer.exe](https://github.com/lenuxfpv/fpv-lap-timer/releases/latest/download/FPVLapTimer.exe)
-(portable) · [all releases](https://github.com/lenuxfpv/fpv-lap-timer/releases). Linux: see [Install](#install).
+**Download (Windows):** [FPVLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVLapTimer-Setup.exe)
+(installer) · [FPVLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVLapTimer.exe)
+(portable) · [all releases](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases). Linux: see [Install](#install).
 
 Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
 start gate, and get lap times, fastest lap and your fastest run of consecutive laps (3 by default, 2-10 if you prefer). Videos are kept in a
@@ -45,7 +45,7 @@ you and prints the fix for your distro. Uninstalling leaves your library alone a
 ### Windows
 
 **Installer (easiest).** Download **`FPVLapTimer-Setup.exe`** from the
-[Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases) and run it. No Python is needed and no admin
+[Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases) and run it. No Python is needed and no admin
 rights: it installs to `%LOCALAPPDATA%\Programs\FPV DVR Lap Timer`, adds a Start Menu shortcut (and a Desktop one if
 you tick it) and an "FPV DVR Lap Timer" entry in Settings > Apps, where you can uninstall it. The uninstaller asks
 whether to also delete the smooth-scrub copies; your library and videos are never touched. The release also has the
@@ -358,7 +358,7 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 ## Changelog
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
-[Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+[Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases).
 
 ### 1.9.0
 - **Add videos…** and **Add folder…** now let you choose the track for each file as you add it (or for all the
