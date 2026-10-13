@@ -298,6 +298,8 @@ class Library:
             self.db.execute("ALTER TABLE videos ADD COLUMN track TEXT NOT NULL DEFAULT ''")
         if "session_date" not in cols:      # ISO yyyy-mm-dd, NULL = use the file's date
             self.db.execute("ALTER TABLE videos ADD COLUMN session_date TEXT")
+        if "proxy_locked" not in cols:      # 1 = never build this video's smooth copy automatically
+            self.db.execute("ALTER TABLE videos ADD COLUMN proxy_locked INTEGER NOT NULL DEFAULT 0")
         self.db.commit()
 
     # --- track / session metadata
@@ -312,6 +314,15 @@ class Library:
                 self.db.execute("UPDATE videos SET track=? WHERE id=?", (track.strip(), vid))
             if session_date is not KEEP:
                 self.db.execute("UPDATE videos SET session_date=? WHERE id=?", (session_date, vid))
+        self.db.commit()
+
+    def proxy_locked_ids(self):
+        """Ids of the videos whose smooth copy is never built automatically."""
+        return {r[0] for r in self.db.execute("SELECT id FROM videos WHERE proxy_locked=1")}
+
+    def set_proxy_locked(self, vids, locked):
+        for vid in vids:
+            self.db.execute("UPDATE videos SET proxy_locked=? WHERE id=?", (1 if locked else 0, vid))
         self.db.commit()
 
     def tracks(self):
@@ -526,6 +537,8 @@ class Library:
             self.db.execute("ALTER TABLE videos ADD COLUMN track TEXT NOT NULL DEFAULT ''")
         if "session_date" not in cols:
             self.db.execute("ALTER TABLE videos ADD COLUMN session_date TEXT")
+        if "proxy_locked" not in cols:
+            self.db.execute("ALTER TABLE videos ADD COLUMN proxy_locked INTEGER NOT NULL DEFAULT 0")
         self.db.execute("CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY)")
         self.db.execute("CREATE TABLE IF NOT EXISTS track_settings (track TEXT PRIMARY KEY, run_length INTEGER NOT NULL)")
         self.db.commit()
@@ -541,9 +554,10 @@ class Library:
         try:
             cols = {r[1] for r in src.execute("PRAGMA table_info(videos)")}
             sel = "id, path, fps, " + ("track" if "track" in cols else "''") + ", " + \
-                  ("session_date" if "session_date" in cols else "NULL")
+                  ("session_date" if "session_date" in cols else "NULL") + ", " + \
+                  ("proxy_locked" if "proxy_locked" in cols else "0")
             theirs = src.execute(f"SELECT {sel} FROM videos").fetchall()
-            for sid, vpath, fps, track, sdate in theirs:
+            for sid, vpath, fps, track, sdate, locked in theirs:
                 row = self.db.execute("SELECT id, track, session_date FROM videos WHERE path=?", (vpath,)).fetchone()
                 if row:
                     vid = row[0]
@@ -553,8 +567,8 @@ class Library:
                     if not row[2] and sdate:
                         self.db.execute("UPDATE videos SET session_date=? WHERE id=?", (sdate, vid))
                 else:
-                    vid = self.db.execute("INSERT INTO videos(path, fps, track, session_date) VALUES(?,?,?,?)",
-                                          (vpath, fps or 30, track or "", sdate)).lastrowid
+                    vid = self.db.execute("INSERT INTO videos(path, fps, track, session_date, proxy_locked) VALUES(?,?,?,?,?)",
+                                          (vpath, fps or 30, track or "", sdate, locked or 0)).lastrowid
                     stats["videos_added"] += 1
                 have = {r[0] for r in self.db.execute("SELECT time_ms FROM marks WHERE video_id=?", (vid,))}
                 for t, bad in src.execute("SELECT time_ms, bad_lap FROM marks WHERE video_id=? ORDER BY time_ms", (sid,)):
@@ -2202,7 +2216,7 @@ class LibraryDelegate(QStyledItemDelegate):
         y = r.top() + 5
 
         # --- row 1: track name (left), status badges (right)
-        badges = ("⚡ " if info["ready"] else "") + ("⚠ duplicate" if info["dup"] else "") + \
+        badges = ("🔒 " if info.get("locked") else "") + ("⚡ " if info["ready"] else "") + ("⚠ duplicate" if info["dup"] else "") + \
                  ("⚠ not found" if not info["exists"] else "")
         p.setFont(font(0.9))
         bw = QFontMetrics(p.font()).horizontalAdvance(badges) + 4 if badges else 0
@@ -2827,21 +2841,23 @@ class MainWindow(QMainWindow):
             for v in group:
                 dup_of[v] = [pth for vv, pth, _ in self.lib.videos() if vv in group and vv != v]
         rmap = self.lib.run_map()
+        locked = self.lib.proxy_locked_ids()
         for d, vid, path, fps in entries:
             n = run_for(rmap, meta[vid][0])
             s = lap_stats(self.lib.laps(vid), n)
             exists = os.path.exists(path)
             ready = exists and proxy_path(path).exists()
-            if exists and not ready:
+            if exists and not ready and vid not in locked:
                 missing_copies += 1
             item = QListWidgetItem(vname(path))             # plain text for accessibility; painted by the delegate
             item.setData(ROLE_INFO, {
                 "track": meta[vid][0], "run": n, "good": s["good"], "total": s["total"],
                 "best": s["best"][0] if s["best"] else None, "bestn": s["bestn"][0] if s["bestn"] else None,
                 "name": vname(path), "date": d.isoformat() if d else "", "ready": ready,
-                "dup": vid in dup_of, "exists": exists})
+                "dup": vid in dup_of, "exists": exists, "locked": vid in locked})
             item.setData(Qt.ItemDataRole.UserRole, (vid, path, fps))
             item.setToolTip(path + ("" if exists else "\n(file not found - double-click to locate)")
+                            + ("\n🔒 Smooth copy is not built automatically (right-click to change)" if vid in locked else "")
                             + ("\n⚠ Same file is also in the library as: " + "; ".join(dup_of[vid])
                                + "\nIts laps are counted twice in stats. Remove one of them." if vid in dup_of else ""))
             self.lib_list.addItem(item)
@@ -3096,7 +3112,64 @@ class MainWindow(QMainWindow):
         clear.triggered.connect(lambda: self.assign_track(vids, ""))
         menu.addSeparator()
         menu.addAction("Track && session date…").triggered.connect(self.edit_details)
+        menu.addSeparator()
+        copies = [v for v in vids if proxy_path(paths[v]).exists()]
+        delete = menu.addAction("Delete smooth copy" if len(vids) == 1 else f"Delete smooth copies ({len(copies)})")
+        delete.setEnabled(bool(copies))
+        delete.triggered.connect(lambda: self.delete_proxies(vids))
+        locked = self.lib.proxy_locked_ids()
+        all_locked = all(v in locked for v in vids)
+        lock = menu.addAction("🔒 Don't auto-build smooth copy")
+        lock.setCheckable(True)
+        lock.setChecked(all_locked)
+        lock.triggered.connect(lambda: self.set_proxy_lock(vids, not all_locked))
         return menu
+
+    def delete_proxies(self, vids):
+        """Delete the smooth copies of the given videos (the videos and their marks are untouched)."""
+        paths = {v: p for v, p, _ in self.lib.videos()}
+        files = {proxy_path(paths[v]) for v in vids if v in paths}
+        files = [f for f in files if f.exists()]
+        if not files:
+            return
+        size = sum(f.stat().st_size for f in files) / 1e6
+        if QMessageBox.question(self, "Delete smooth copy",
+                                f"Delete {len(files)} smooth-scrub cop{'y' if len(files) == 1 else 'ies'} "
+                                f"({size:.0f} MB)?\nYour videos and marks are not affected; copies can be rebuilt."
+                                ) != QMessageBox.StandardButton.Yes:
+            return
+        doomed = {paths[v] for v in vids if v in paths}
+        self.build_queue = [q for q in self.build_queue if q[1] not in doomed]
+        if self.build and self.build["path"] in doomed:
+            self.build["cancelled"] = True
+            self.build["proc"].kill()
+        if self.cur_path in doomed:
+            self.player.setSource(QUrl())          # release the file before deleting it
+        for f in files:
+            f.unlink(missing_ok=True)
+        if self.cur_path in doomed:
+            self.load_source(keep_pos=self.cursor_ms)
+        self.refresh_library()
+        self.reselect(vids)
+        self.update_proxy_ui()
+        self.statusBar().showMessage(f"Deleted {len(files)} smooth cop{'y' if len(files) == 1 else 'ies'}"
+                                     + ("; lock the video to stop Auto-build making it again"
+                                        if self.auto_proxy.isChecked() else ""), 8000)
+
+    def set_proxy_lock(self, vids, locked):
+        """Lock (or unlock) automatic smooth-copy building for the given videos."""
+        self.lib.set_proxy_locked(vids, locked)
+        if locked:
+            paths = {p for v, p, _ in self.lib.videos() if v in vids}
+            self.build_queue = [q for q in self.build_queue if q[1] not in paths]
+            if self.build and self.build["path"] in paths:
+                self.build["cancelled"] = True
+                self.build["proc"].kill()
+        self.refresh_library()
+        self.reselect(vids)
+        self.update_proxy_ui()
+        self.statusBar().showMessage(f"{len(vids)} video(s): smooth copy will "
+                                     + ("not be built automatically" if locked else "be built automatically again"), 5000)
 
     def on_library_menu(self, pos):
         item = self.lib_list.itemAt(pos)
@@ -3193,7 +3266,8 @@ class MainWindow(QMainWindow):
                                      else "Using the original video (scrubbing jumps between keyframes).")
             self.proxy_btn.hide()
         else:
-            self.proxy_label.setText("Original video: scrubbing only jumps between keyframes, so the picture "
+            off = "🔒 Auto-build is off for this video. " if self.vid in self.lib.proxy_locked_ids() else ""
+            self.proxy_label.setText(off + "Original video: scrubbing only jumps between keyframes, so the picture "
                                      "lags. Build a smooth copy for exact frames.")
             self.proxy_btn.setText("⚡ Build smooth-scrub copy"); self.proxy_btn.show()
 
@@ -3202,13 +3276,15 @@ class MainWindow(QMainWindow):
             self.build["cancelled"] = True
             self.build["proc"].kill()
         elif self.cur_path:
-            self.request_proxy(self.vid, self.cur_path)
+            self.request_proxy(self.vid, self.cur_path, manual=True)
             self.update_proxy_ui()
 
-    def request_proxy(self, vid, path, front=False):
-        """Queue a smooth copy. front=True moves it ahead of the other waiting videos."""
+    def request_proxy(self, vid, path, front=False, manual=False):
+        """Queue a smooth copy. front=True moves it ahead of the other waiting videos. A locked video is skipped
+        unless the user asked for this one directly (manual=True)."""
         if (proxy_path(path).exists() or not find_tool("ffmpeg") or not os.path.exists(path)
-                or (self.build and self.build["path"] == path)):
+                or (self.build and self.build["path"] == path)
+                or (not manual and vid in self.lib.proxy_locked_ids())):
             return
         self.build_queue = [q for q in self.build_queue if q[1] != path]
         self.build_queue.insert(0, (vid, path)) if front else self.build_queue.append((vid, path))

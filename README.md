@@ -188,7 +188,7 @@ LAPS      FASTEST     FASTEST 3
   Bad laps are excluded, as everywhere else.
 - The **file name** is on a small line at the bottom (shortened in the middle if long), with the session
   date at its right.
-- Badges at the top right: **⚡** smooth-scrub copy ready, **⚠ duplicate** (orange) same file listed twice,
+- Badges at the top right: **🔒** auto-build is off for this video, **⚡** smooth-scrub copy ready, **⚠ duplicate** (orange) same file listed twice,
   **⚠ not found** (red) the file is missing - double-click it to locate it.
 - Hover a card for its full path.
 
@@ -240,6 +240,11 @@ times, so they are identical whichever version you used. More about the copies:
   only if the file itself changes or you clear the cache. Two different videos with the same name,
   size and date would share a copy, which in practice does not happen.
 - Untick *Use smooth copy* to go back to the original at any time.
+- **Right-click** a video in the library to **Delete smooth copy** (just that video's copy, once you have finished
+  marking it) and to tick **🔒 Don't auto-build smooth copy**. A locked video is skipped by *Build when adding*,
+  *Auto-build* and *Build smooth copies (N)*, and shows a 🔒 on its card. The *Build smooth-scrub copy* button under
+  the player still builds it when you ask directly. Both work on a multi-selection, and the lock is saved in the
+  library.
 - Without ffmpeg (or before the copy is ready) the original is used and the picture can only move
   between keyframes. Marks always use the time of the frame **actually on screen**.
 
