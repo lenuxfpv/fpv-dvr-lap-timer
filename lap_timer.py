@@ -23,9 +23,9 @@ from PyQt6.QtGui import QAction, QActionGroup, QColor, QFont, QFontMetrics, QKey
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QHBoxLayout,
+    QApplication, QCheckBox, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
     QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-    QProgressBar, QPushButton, QSlider, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QProgressBar, QPushButton, QScrollArea, QSlider, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QWidget,
 )
 
@@ -312,6 +312,39 @@ class Library:
                 skipped += 1
             else:
                 plan.append((vid, p, np_))
+        return plan, skipped
+
+    def missing_folders(self):
+        """{folder: number of missing videos} for the videos whose file can't be found,
+        grouped by the exact folder they were stored in."""
+        out = {}
+        for _, p, _ in self.videos():
+            if not os.path.exists(p):
+                folder = re.split(r"[\\/]", p)
+                folder = ("\\" if _is_windows_style(p) else "/").join(folder[:-1])
+                out[folder] = out.get(folder, 0) + 1
+        return out
+
+    def plan_folder_swaps(self, mapping):
+        """Like plan_prefix_swap but for several old->new folder pairs at once.
+        -> (plan [(vid, old_path, new_path)], skipped)."""
+        taken = {p for _, p, _ in self.videos()}
+        plan, skipped, done = [], 0, set()
+        for old, new in mapping.items():
+            if not new.strip():
+                continue
+            for vid, p, _ in self.videos():
+                if vid in done:
+                    continue
+                np_ = remap_path(p, old, new)
+                if not np_ or np_ == p:
+                    continue
+                done.add(vid)
+                if np_ in taken:
+                    skipped += 1
+                else:
+                    taken.add(np_)
+                    plan.append((vid, p, np_))
         return plan, skipped
 
     def apply_path_plan(self, plan):
@@ -1041,19 +1074,40 @@ class ProgressDialog(QDialog):
 # Fix paths dialog
 # ----------------------------------------------------------------------------
 class FixPathsDialog(QDialog):
-    """Re-point many videos at once by swapping the folder they were stored under."""
+    """Re-point missing videos by swapping the folder they were stored under. One row per
+    old folder, so videos that lived in different folders can go to different new folders."""
     def __init__(self, lib, parent=None):
         super().__init__(parent)
         self.lib = lib
+        self.plan = []
         self.setWindowTitle("Fix video paths")
-        self.resize(640, 220)
-        missing = [p for _, p, _ in lib.videos() if not os.path.exists(p)]
-        self.old = QLineEdit(common_folder(missing))
-        self.old.setPlaceholderText("Old folder, e.g. /mnt/TheVault/Drone  or  D:\\Drone")
-        self.new = QLineEdit()
-        self.new.setPlaceholderText("New folder where the videos are now")
-        browse = QPushButton("Browse…")
-        browse.clicked.connect(self.browse)
+        self.resize(760, 360)
+        folders = lib.missing_folders()
+
+        self.rows = []                      # (old folder, new-folder QLineEdit)
+        grid_host = QWidget()
+        grid = QGridLayout(grid_host)
+        grid.setColumnStretch(1, 1)
+        grid.addWidget(QLabel("<b>Old folder</b>"), 0, 0)
+        grid.addWidget(QLabel("<b>New folder where those videos are now</b>"), 0, 1)
+        for r, (old, count) in enumerate(sorted(folders.items()), start=1):
+            label = QLabel(f"{old}  ({count} video{'s' if count != 1 else ''})")
+            label.setToolTip(old)
+            label.setWordWrap(True)
+            new = QLineEdit()
+            new.setPlaceholderText("leave blank to skip this folder")
+            browse = QPushButton("Browse…")
+            browse.clicked.connect(lambda _=False, e=new, o=old: self.browse(e, o))
+            new.textChanged.connect(self.preview)
+            grid.addWidget(label, r, 0)
+            grid.addWidget(new, r, 1)
+            grid.addWidget(browse, r, 2)
+            self.rows.append((old, new))
+        grid.setRowStretch(len(folders) + 1, 1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(grid_host)
+
         self.info = QLabel()
         self.info.setWordWrap(True)
         self.ok = QPushButton("Update paths")
@@ -1061,26 +1115,26 @@ class FixPathsDialog(QDialog):
         cancel = QPushButton("Close")
         cancel.clicked.connect(self.reject)
 
-        form = QFormLayout(self)
-        form.addRow(QLabel(f"{len(missing)} video(s) in the library can't be found. Replace the start of "
-                           "their path with the folder they live in now (subfolders are kept)."))
-        form.addRow("Old folder:", self.old)
-        row = QHBoxLayout(); row.addWidget(self.new, 1); row.addWidget(browse)
-        form.addRow("New folder:", row)
-        form.addRow(self.info)
+        lay = QVBoxLayout(self)
+        total = sum(folders.values())
+        lay.addWidget(QLabel(f"{total} video(s) in the library can't be found, in {len(folders)} folder(s). "
+                             "For each old folder, pick the folder they live in now (subfolders are kept). "
+                             "Folders can go to different places; leave a row blank to skip it."))
+        lay.addWidget(scroll, 1)
+        lay.addWidget(self.info)
         btns = QHBoxLayout(); btns.addStretch(1); btns.addWidget(cancel); btns.addWidget(self.ok)
-        form.addRow(btns)
-        self.old.textChanged.connect(self.preview)
-        self.new.textChanged.connect(self.preview)
+        lay.addLayout(btns)
         self.preview()
 
-    def browse(self):
-        d = QFileDialog.getExistingDirectory(self, "New folder", self.new.text() or str(Path.home()))
+    def browse(self, edit, old):
+        start = edit.text() or next((n.text() for _, n in self.rows if n.text()), "") or str(Path.home())
+        d = QFileDialog.getExistingDirectory(self, f"New folder for {old}", start)
         if d:
-            self.new.setText(d)
+            edit.setText(d)
 
     def preview(self):
-        self.plan, skipped = self.lib.plan_prefix_swap(self.old.text().strip(), self.new.text().strip())
+        mapping = {old: new.text().strip() for old, new in self.rows}
+        self.plan, skipped = self.lib.plan_folder_swaps(mapping)
         found = sum(os.path.exists(n) for _, _, n in self.plan)
         text = f"{len(self.plan)} video(s) would change; {found} of those exist at the new location."
         if skipped:

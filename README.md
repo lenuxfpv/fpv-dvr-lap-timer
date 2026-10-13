@@ -101,8 +101,8 @@ The **Library** menu works on the whole database, so you don't have to find `lib
 To move to another computer, export on the old one and import (or merge) on the new one. You can also
 copy `library.db` to the new machine's location above. Video paths are stored as full paths, so they
 will show in red if the videos live somewhere else there. Click **Fix paths…** in the library panel:
-enter the old folder (pre-filled from the missing videos) and the new folder, and every video under
-it is re-pointed at once, subfolders kept. It also converts between Windows (`D:\Drone`) and
+it lists every folder that has missing videos, one row each; pick the new folder for each (they can
+be different places, and a blank row is skipped) and the videos are re-pointed at once. It also converts between Windows (`D:\Drone`) and
 Linux (`/mnt/Drone`) style paths, and shows how many of the new locations actually exist before you
 apply it.
 
