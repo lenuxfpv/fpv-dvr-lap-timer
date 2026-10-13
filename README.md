@@ -12,8 +12,8 @@ library grouped by track and session date.
 
 ## What's new in 1.4
 
-- **Fastest run of N laps:** pick how many consecutive laps count (2-10, default 3) with **Fastest run of:** in
-  the right panel. The library cards, stats, charts and the video export all follow it. See
+- **Fastest run of N laps:** pick how many consecutive laps count (2-10, default 3) for each track with the
+  **Fastest run** box in the right panel. The library cards, stats, charts and the video export all follow it. See
   [Reports](#reports). The export's suggested file name also drops the minutes when the total is under a
   minute. In the export dialog you can also set a **Start padding** and reset both paddings to their defaults.
 
@@ -164,7 +164,7 @@ LAPS      FASTEST     FASTEST 3
 
 - **Track name** in large bold type (*No track* in grey italics if none is set).
 - **LAPS** = good / total laps marked, **FASTEST** = best good lap, **FASTEST 3** = best three good laps in a
-  row (a dash until there are three in a row; the 3 follows your *Fastest run of* setting, see *Reports*).
+  row (a dash until there are three in a row; the 3 follows your *Fastest run* setting for the track, see *Reports*).
   Bad laps are excluded, as everywhere else.
 - The **file name** is on a small line at the bottom (shortened in the middle if long), with the session
   date at its right.
@@ -313,17 +313,24 @@ dialogs follow the theme too.
   `track, session_date, video, lap, start_s, end_s, lap_time_s, lap_time, bad_lap`. Bad laps are
   included and marked `yes`, so you can filter them in a spreadsheet.
 
-**Choosing N.** *Fastest run of:* in the right panel (above the export button) sets how many consecutive
-laps the "fastest N" figures use, from 2 to 10 (default 3). It is one global setting: the library cards,
-the per-video and library stats, the lap chart's dashed box, the progress chart and the export all follow
-it straight away, for every video, and it is remembered. Nothing is stored per video, so changing it never
-alters your marks. A video shows a dash when it doesn't have N good laps in a row.
+**Choosing N.** The *Fastest run for 'track':* box in the right panel (above the export button) sets how
+many consecutive laps count as the fastest run, from 2 to 10, **per track**. It applies to the track of the
+video you have open (or the track picked in the library filter); *Use default* removes a track's own setting.
+Tracks without one always use the **default of 3**, which can't be changed (the box is greyed out when there
+is no track). The library cards, the per-video and library stats, the lap chart's dashed box, the progress
+chart and the export all follow it, and it is saved in the library, so it travels with exports and merges and
+follows a track when you rename it. Nothing is stored per video, so changing it never alters your marks. A
+video shows a dash when it doesn't have N good laps in a row.
+
+In **Library stats**, each row shows the run length used (*Run (laps)*). With *All tracks* selected and tracks
+using different lengths there is no single "fastest N" headline, so the tables show each track's own figure,
+and the video export asks you to pick one track first.
 
 Fastest-N is calculated within a single video; it never spans two videos.
 
 ### Export the fastest N laps as a video
 
-Makes a shareable video of your fastest N consecutive laps (N = *Fastest run of*, 3 by default) with a lap timer drawn on it.
+Makes a shareable video of your fastest N consecutive laps (N = the track's *Fastest run* setting, 3 by default) with a lap timer drawn on it.
 
 - **From the open video:** **🎬 Export fastest N video…** in the right panel exports that video's fastest
   N consecutive laps. **From a track:** **Library stats → 🎬 Export fastest N video (this track)…** exports
@@ -359,6 +366,11 @@ Makes a shareable video of your fastest N consecutive laps (N = *Fastest run of*
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- **Fastest run is now per track:** each track can have its own run length (2-10) for the "fastest N"
+  figures and the video export; tracks without one always use 3. Stored in the library, so it travels with
+  exports and merges. (The 1.4.0/1.4.1 global setting is gone: the default is fixed at 3.)
 
 ### 1.4.1
 - Export video: new **Start padding** setting (footage before the first gate) next to End padding, and a
