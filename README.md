@@ -44,41 +44,35 @@ you and prints the fix for your distro. Uninstalling leaves your library alone a
 
 ### Windows
 
-**Easiest:** download **`FPVLapTimer-Setup.exe`** from the
-[Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases) and run it. No Python needed and no
-admin rights: it installs to `%LOCALAPPDATA%\Programs\FPV DVR Lap Timer`, adds a Start Menu shortcut (and a
-Desktop one if you tick it) and an "FPV DVR Lap Timer" entry in Settings > Apps, where you can uninstall it. The
-uninstaller asks whether to also delete the smooth-scrub copies; your library and videos are never touched.
-The release also has the bare `FPVLapTimer.exe` if you prefer a portable copy (no Apps entry). If ffmpeg is
-missing the app offers to install it (see below). The rest of this section covers running from source.
+**Installer (easiest).** Download **`FPVLapTimer-Setup.exe`** from the
+[Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases) and run it. No Python is needed and no admin
+rights: it installs to `%LOCALAPPDATA%\Programs\FPV DVR Lap Timer`, adds a Start Menu shortcut (and a Desktop one if
+you tick it) and an "FPV DVR Lap Timer" entry in Settings > Apps, where you can uninstall it. The uninstaller asks
+whether to also delete the smooth-scrub copies; your library and videos are never touched. The release also has the
+bare `FPVLapTimer.exe` if you prefer a portable copy (it has no Apps entry).
 
-Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop shortcut too, and
-`install.bat -Uninstall` to remove them). It creates a private `.venv`, installs PyQt6, and adds a
-Start Menu shortcut and an "FPV DVR Lap Timer" entry in Settings > Apps (Add/Remove Programs) that runs the uninstall. Needs Python 3.9+; if Python or ffmpeg is missing it offers to install them with winget (or run `winget install Python.Python.3.12` yourself). For frame rates install
-ffmpeg (`winget install Gyan.FFmpeg`) or copy `ffmpeg.exe` and `ffprobe.exe` into a `bin` folder next
-to the app. Uninstalling removes the shortcuts and leaves your library alone; it asks whether to also delete the
-cached smooth copies (`%LOCALAPPDATA%\fpv-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`
-deletes them without asking). The installer also warns if your ffmpeg lacks libx264.
+**ffmpeg.** It isn't bundled. If ffmpeg or ffprobe can't be found when the app starts, it offers to install ffmpeg with
+winget (tick *Don't ask again* to stop the prompt, and use **Help → Install ffmpeg…** any time). The app picks up a
+freshly installed ffmpeg without a restart. You can also install it yourself (`winget install Gyan.FFmpeg`) or put
+`ffmpeg.exe` and `ffprobe.exe` in a `bin` folder next to the app.
 
-To build the single `.exe` yourself, run **`build_windows.bat`** on Windows to produce `dist\FPVLapTimer.exe`
-with PyInstaller (no Python needed to run it; put `ffmpeg.exe` and `ffprobe.exe` in `bin` first to
-bundle them). The build also stamps the app's version (`VERSION` in `lap_timer.py`) into the exe's
-Properties > Details tab.
+**Running from source with `install.bat`.** Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop
+shortcut too). It creates a private `.venv`, installs PyQt6, and adds a Start Menu shortcut and an "FPV DVR Lap Timer"
+entry in Settings > Apps that runs the uninstall. It needs Python 3.9+; if Python or ffmpeg is missing it offers to
+install them with winget (or run `winget install Python.Python.3.12` yourself), and it warns if your ffmpeg lacks
+libx264. `install.bat -Uninstall` removes the shortcuts and leaves your library alone; it asks whether to also delete
+the cached smooth copies (`%LOCALAPPDATA%\fpv-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`
+deletes them without asking). If a script fails, the error message says which step; the app itself needs only
+`pip install PyQt6`.
 
-The exe and the installer (`installer.iss`, built with Inno Setup) are built automatically by the **Build Windows exe** GitHub Actions workflow
-(`.github/workflows/build-windows.yml`): run it from the repo's Actions tab, or push a tag like `vX.Y.Z` (matching `VERSION` in `lap_timer.py`)
-to also publish a release. It starts the exe as a smoke test, checks the stamped version, and test-installs and
-uninstalls the installer silently, checking the Apps entry appears and goes away. ffmpeg is not
-bundled in that build, so put it in a `bin` folder next to the exe or on PATH. If ffmpeg or ffprobe can't be
-found when the app starts, it offers to install ffmpeg with winget (Windows) or points you to the install
-command / download page; tick *Don't ask again* to stop the prompt, and use **Help → Install ffmpeg…** any
-time. The app picks up a freshly installed ffmpeg without a restart.
-
-> Tested on a real Windows machine: `FPVLapTimer-Setup.exe` (install, the Settings > Apps entry, uninstall),
-> `FPVLapTimer.exe`, the ffmpeg install prompt and the Keyboard shortcuts dialog. Not yet tried there: the
-> `install.bat` / `install.ps1` route (run from source) since its Settings > Apps entry was added, and
-> playback and exports beyond what's listed. If a script fails, the error message should say which step; the
-> app itself needs only `pip install PyQt6`.
+**Building it yourself.** Run **`build_windows.bat`** on Windows to produce `dist\FPVLapTimer.exe` with PyInstaller
+(no Python needed to run it; put `ffmpeg.exe` and `ffprobe.exe` in `bin` first to bundle them). The build stamps the
+app's version (`VERSION` in `lap_timer.py`) into the exe's Properties > Details tab. The installer is built from
+`installer.iss` with Inno Setup. Both are built automatically by the **Build Windows exe** GitHub Actions workflow
+(`.github/workflows/build-windows.yml`): run it from the repo's Actions tab, or push a tag like `vX.Y.Z` (matching
+`VERSION` in `lap_timer.py`) to also publish a release. The workflow starts the exe as a smoke test, checks the
+stamped version, and test-installs and uninstalls the installer silently, checking that the Apps entry appears and
+goes away.
 
 ### Run without installing
 
