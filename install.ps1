@@ -1,0 +1,96 @@
+# Install FPV Lap Timer for the current user (Windows).
+#   install.bat                 install (Start Menu shortcut)
+#   install.bat -Desktop        also add a Desktop shortcut
+#   install.bat -Uninstall      remove the shortcuts (keeps your library and videos)
+param([switch]$Desktop, [switch]$Uninstall)
+$ErrorActionPreference = "Stop"
+$Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\FPV Lap Timer.lnk"
+$DesktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "FPV Lap Timer.lnk"
+
+if ($Uninstall) {
+    Remove-Item -Force -ErrorAction SilentlyContinue $StartMenu, $DesktopLnk
+    Write-Host "Shortcuts removed. Your library ($env:APPDATA\fpv-lap-timer) and videos were not touched."
+    Write-Host "Smooth-scrub copies are cached in $env:LOCALAPPDATA\fpv-lap-timer - delete that folder to free the space."
+    if (Test-Path "$Dir\.venv") { Write-Host "Delete $Dir\.venv yourself if you no longer need it." }
+    exit 0
+}
+
+# --- Python ---------------------------------------------------------------------
+function Test-Python($exe, [string[]]$pyArgs) {
+    try {
+        & $exe @pyArgs -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)" 2>$null
+        return ($LASTEXITCODE -eq 0)
+    } catch { return $false }
+}
+$PyExe = $null
+$PyArgs = @()
+if ((Get-Command py -ErrorAction SilentlyContinue) -and (Test-Python "py" @("-3"))) {
+    $PyExe = "py"; $PyArgs = @("-3")
+} elseif ((Get-Command python -ErrorAction SilentlyContinue) -and (Test-Python "python" @())) {
+    $PyExe = "python"
+}
+if (-not $PyExe) {
+    Write-Host "Python 3.9+ was not found." -ForegroundColor Red
+    Write-Host "Install it from https://www.python.org/downloads/ (tick 'Add python.exe to PATH'),"
+    Write-Host "or run:  winget install Python.Python.3.12   then run this installer again."
+    exit 1
+}
+
+# --- private environment with PyQt6 -------------------------------------------------
+$VenvPy = Join-Path $Dir ".venv\Scripts\python.exe"
+$VenvPyw = Join-Path $Dir ".venv\Scripts\pythonw.exe"
+if (-not (Test-Path $VenvPyw)) {
+    Write-Host "Creating private Python environment in .venv ..."
+    & $PyExe @PyArgs -m venv "$Dir\.venv"
+    if ($LASTEXITCODE -ne 0) { throw "Could not create the virtual environment." }
+}
+Write-Host "Installing PyQt6 (this can take a minute) ..."
+& $VenvPy -m pip install --quiet --upgrade pip PyQt6
+if ($LASTEXITCODE -ne 0) { throw "pip could not install PyQt6." }
+& $VenvPy -c "import PyQt6.QtMultimedia" 2>$null
+if ($LASTEXITCODE -ne 0) { throw "PyQt6 installed but Qt Multimedia failed to load." }
+
+# --- ffmpeg / ffprobe -------------------------------------------------------------
+$missing = @()
+foreach ($tool in @("ffmpeg", "ffprobe")) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue) -and
+        -not (Test-Path "$Dir\bin\$tool.exe") -and -not (Test-Path "$Dir\ffmpeg\bin\$tool.exe")) {
+        $missing += $tool
+    }
+}
+if ($missing.Count -gt 0) {
+    Write-Host ""
+    Write-Host ("Warning: " + ($missing -join ", ") + " not found. The app still runs, but it can't build smooth-scrub") -ForegroundColor Yellow
+    Write-Host "copies (scrubbing only jumps between keyframes) and it assumes 30 fps for frame-stepping." -ForegroundColor Yellow
+    Write-Host "Fix:  winget install Gyan.FFmpeg   (then reopen the app)"
+    Write-Host "  or: copy ffmpeg.exe and ffprobe.exe from an ffmpeg download into $Dir\bin"
+}
+
+# libx264 is needed for the smooth-scrub copies and the video export
+$ffmpegExe = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
+if (-not $ffmpegExe -and (Test-Path "$Dir\bin\ffmpeg.exe")) { $ffmpegExe = "$Dir\bin\ffmpeg.exe" }
+if ($ffmpegExe) {
+    $enc = & $ffmpegExe -hide_banner -encoders 2>$null | Out-String
+    if ($enc -notmatch "libx264") {
+        Write-Host ""
+        Write-Host "Warning: this ffmpeg has no libx264 (H.264) encoder, so smooth-scrub copies and the video export will fail." -ForegroundColor Yellow
+        Write-Host "Use a full build, e.g.  winget install Gyan.FFmpeg"
+    }
+}
+
+# --- shortcuts ---------------------------------------------------------------------------
+function New-Shortcut($path) {
+    $sh = New-Object -ComObject WScript.Shell
+    $lnk = $sh.CreateShortcut($path)
+    $lnk.TargetPath = $VenvPyw                       # pythonw = no console window
+    $lnk.Arguments = '"' + (Join-Path $Dir "lap_timer.py") + '"'
+    $lnk.WorkingDirectory = $Dir
+    $lnk.IconLocation = (Join-Path $Dir "fpv-lap-timer.ico")
+    $lnk.Description = "Mark gate passes in FPV footage and track lap times"
+    $lnk.Save()
+}
+New-Shortcut $StartMenu
+if ($Desktop) { New-Shortcut $DesktopLnk }
+Write-Host ""
+Write-Host "Installed. Find 'FPV Lap Timer' in the Start Menu." -ForegroundColor Green

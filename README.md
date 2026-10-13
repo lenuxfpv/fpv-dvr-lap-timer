@@ -1,0 +1,281 @@
+# FPV Lap Timer
+
+Version 1.1.0 (shown in the window title and **Help → About**).
+
+Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
+start gate, and get lap times, fastest lap and fastest 3 consecutive laps. Videos are kept in a
+library grouped by track and session date.
+
+## Install
+
+You need Python 3.9+, **PyQt6** and (strongly recommended) **ffmpeg**, which provides two programs:
+`ffprobe` reads each video's frame rate (without it 30 fps is assumed and frame-stepping is off on other
+frame rates) and `ffmpeg` builds the smooth-scrub copies (without it scrubbing only jumps between
+keyframes, see *Navigating the video*). The app works without ffmpeg, just less smoothly. Your ffmpeg
+must include the **libx264** encoder (used for the smooth copies and the video export); Fedora's default
+`ffmpeg-free` does not, so on Fedora enable RPM Fusion and run `sudo dnf swap ffmpeg-free ffmpeg
+--allowerasing`. The Debian/Ubuntu `ffmpeg` and the Windows `winget install Gyan.FFmpeg` builds include it.
+The video export also needs a bold font file, normally already installed (DejaVu Sans or Liberation on
+Linux, Arial on Windows). The install
+scripts check all of this for you and add a menu launcher pointing at the folder you run them from. Keep
+the project folder where it is after installing; if you move it, run the installer again.
+
+### Linux
+
+```
+./install.sh               # menu launcher; uses system PyQt6, or creates a private .venv
+./install.sh --desktop     # also a Desktop shortcut
+./install.sh --uninstall   # remove launcher + icon (library and videos untouched)
+```
+
+If `ffmpeg` / `ffprobe` is missing, ffmpeg has no libx264, or no bold font is found, the script warns
+you and prints the fix for your distro. Uninstalling leaves your library and the cached smooth copies (`~/.cache/fpv-lap-timer`) alone.
+
+### Windows
+
+Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop shortcut too, and
+`install.bat -Uninstall` to remove them). It creates a private `.venv`, installs PyQt6, and adds a
+Start Menu shortcut. Needs Python 3.9+ (`winget install Python.Python.3.12`). For frame rates install
+ffmpeg (`winget install Gyan.FFmpeg`) or copy `ffmpeg.exe` and `ffprobe.exe` into a `bin` folder next
+to the app. Uninstalling removes the shortcuts only; your library and the cached copies
+(`%LOCALAPPDATA%\fpv-lap-timer`) stay. The installer also warns if your ffmpeg lacks libx264.
+
+Prefer a single `.exe`? Run **`build_windows.bat`** on Windows to produce `dist\FPVLapTimer.exe`
+with PyInstaller (no Python needed to run it; put `ffmpeg.exe` and `ffprobe.exe` in `bin` first to
+bundle them). The build also stamps the app's version (`VERSION` in `lap_timer.py`) into the exe's
+Properties > Details tab.
+
+> The Windows scripts were written on Linux and have not been run on a real Windows machine yet.
+> If one fails, the error message should say which step; the app itself needs only
+> `pip install PyQt6`.
+
+### Run without installing
+
+```
+python3 lap_timer.py                          # open the app
+python3 lap_timer.py flight1.ts flight2.mp4   # open and add these videos to the library
+```
+
+You can also drag video files or folders onto the window.
+
+## Where your data lives
+
+Everything is stored in one SQLite database - Linux `~/.local/share/fpv-lap-timer/library.db`,
+Windows `%APPDATA%\fpv-lap-timer\library.db`, macOS `~/Library/Application Support/fpv-lap-timer/`.
+Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds each video's path,
+gate marks, bad-lap flags, track name and session date. **Nothing is written next to your videos**,
+and the app never modifies or deletes video files. Back up that one file to keep your history.
+Preferences (theme, Mark gate hotkey, the *Auto-build* / *Build when adding* checkboxes) are stored
+separately by Qt (Linux `~/.config/fpv-lap-timer/app.conf`, Windows registry) and are not part of the
+library file.
+
+**Duplicate protection.** Adding a file that is already in the library (the same file reached through a
+different path, a symlink, or a copy with the same name, size and date) is refused with a warning
+listing what was skipped, because the same laps would otherwise be counted twice in your stats. If
+duplicates are already in the library they show as **⚠ duplicate** (orange) in the list, and the
+Library stats window shows a warning for the track/view that contains them. Remove the extra entry
+with *Remove*; the video file and the shared smooth copy are not touched.
+
+If a video is moved or renamed it shows in red; double-click it and pick the new location. Your
+marks stay attached.
+
+### Backing up, moving and merging the library
+
+The **Library** menu works on the whole database, so you don't have to find `library.db` yourself:
+
+- **Export library…** saves a copy to a `.db` file you choose (named with today's date by default).
+- **Import library (replace)…** swaps your library for an exported file. Your current library is saved
+  first as `library-before-import-<date-time>.db` next to `library.db`.
+- **Merge library…** adds another library to yours without overwriting anything. Videos are matched by
+  file path: new videos come across with their marks, track and session date; for videos you both have,
+  marks at times you don't already have are added and an empty track or session date is filled in
+  (your own marks and settings are kept). A summary shows what was added.
+
+To move to another computer, export on the old one and import (or merge) on the new one. You can also
+copy `library.db` to the new machine's location above. Video paths are stored as full paths, so they
+will show in red if the videos live somewhere else there. Click **Fix paths…** in the library panel:
+enter the old folder (pre-filled from the missing videos) and the new folder, and every video under
+it is re-pointed at once, subfolders kept. It also converts between Windows (`D:\Drone`) and
+Linux (`/mnt/Drone`) style paths, and shows how many of the new locations actually exist before you
+apply it.
+
+## The video library list
+
+Each video in the left panel is shown as a card:
+
+```
+RaceGOW6 Track 1                  ⚡
+LAPS      FASTEST     FASTEST 3
+6/7       0:25.737    1:22.591
+20261010-155234.ts       2026-10-10
+```
+
+- **Track name** in large bold type (*No track* in grey italics if none is set).
+- **LAPS** = good / total laps marked, **FASTEST** = best good lap, **FASTEST 3** = best three good laps in a
+  row (a dash until there are three in a row). Bad laps are excluded, as everywhere else.
+- The **file name** is on a small line at the bottom (shortened in the middle if long), with the session
+  date at its right.
+- Badges at the top right: **⚡** smooth-scrub copy ready, **⚠ duplicate** (orange) same file listed twice,
+  **⚠ not found** (red) the file is missing - double-click it to locate it.
+- Hover a card for its full path.
+
+## Workflow
+
+1. **Add videos** with *Add videos…*, *Add folder…* (scans subfolders), or drag and drop.
+2. Select videos and click **Track / date…** to set a track name and session date (see below).
+3. Double-click a video to open it.
+4. Play or scrub to the moment you pass through the gate and press **Z** (or the green button; you can change the key, see below).
+   The first mark starts lap 1; every later mark ends a lap and starts the next.
+5. Review the table on the right and flag any bad laps.
+
+### Navigating the video
+
+**Smooth-scrub copy.** FPV recordings (especially `.ts`) have a keyframe only every second or two, and
+a player can only show those frames when you jump around, so scrubbing looks stuck and
+single-frame stepping doesn't work. The app fixes this by building a small 480p copy of each video in
+which every frame is a keyframe (ffmpeg; builds at roughly 5x real time). Each copy takes about
+17-19% of the original's size, i.e. 0.5 MB per second of 60 fps footage and 0.8 MB per second at 90 fps
+(a 2.5 minute video is ~100-130 MB). Any ffmpeg version works; 5.1+ is preferred and older ones are
+handled automatically.
+It is built in the background, after which the app switches to it automatically and keeps your
+position. When copies get built:
+
+- **When you add videos** (checkbox *Build when adding videos* in the library panel, on by default):
+  every new video is queued and built one after another, so a whole folder is ready by the time you
+  start reviewing. Videos you already have are not rebuilt.
+- **Build smooth copies (N)** button: queues every video in the current list (it respects the track
+  filter) that doesn't have a copy yet. While anything is building it becomes **Cancel all builds**,
+  and a line under it shows the current video, its percentage and how many are waiting.
+- **When you open a video** (*Auto-build* under the player): a video you open that has no copy jumps to
+  the front of the queue.
+- A **⚡** badge on a video's card in the library list means its smooth copy is ready. Opening a video
+  while its copy is still building works fine; it switches over when it finishes.
+
+Once a copy is in use, scrubbing, stepping and reverse are fluid and frame-exact. Marks are saved as
+times, so they are identical whichever version you used. More about the copies:
+
+- The copies live in a cache folder (Linux `~/.cache/fpv-lap-timer/smooth`, Windows
+  `%LOCALAPPDATA%\fpv-lap-timer\smooth`), never next to your videos. **Clear smooth copies…**
+  deletes them to free space; they can be rebuilt. *Remove* also deletes that video's copy.
+- A copy is found again by the video's **file name, size and modified date**, not its folder, so
+  moving or reorganising your videos (or using *Fix paths…*) does not trigger a rebuild. It is rebuilt
+  only if the file itself changes or you clear the cache. Two different videos with the same name,
+  size and date would share a copy, which in practice does not happen.
+- Untick *Use smooth copy* to go back to the original at any time.
+- Without ffmpeg (or before the copy is ready) the original is used and the picture can only move
+  between keyframes. Marks always use the time of the frame **actually on screen**.
+
+**Slow to fast:**
+
+- **Shuttle slider** (under the seek bar): drag right to play forward from 0.1x up to 16x, drag left
+  to go backward; the further you drag, the faster. Let go and it springs back and stops. This is the
+  quickest way to cruise along a lap and then slow down at the gate.
+- **Frame stepping:** ←/→ (hold to repeat), the Frame buttons, or the mouse wheel over the video
+  (Shift = 10 frames per notch).
+- **Seek bar:** click or drag anywhere; orange ticks show where your gate marks are.
+- **Fixed speeds:** 0.1x - 8x in the Speed box (`[` / `]`).
+- **J / K / L:** J = backward, L = forward (press again to double: 1x, 2x, 4x … 16x), K = stop.
+- **PgUp / PgDn** (or the Gate buttons) jump to the previous / next gate mark.
+
+### Controls
+
+| Key | Action |
+|---|---|
+| Space | Play / pause (also stops a shuttle) |
+| Z | Mark gate pass on the frame shown (changeable: **View → Mark gate hotkey…**) |
+| ← / → | Step one frame back / forward (hold to repeat) |
+| Mouse wheel on video | Step frames (Shift = 10) |
+| Hold Shift + ← / → | Play backward / forward at 2x while held; stops on release |
+| Ctrl + ← / → | Jump 5 seconds |
+| J / K / L | Shuttle backward / stop / forward (repeat to speed up) |
+| PgUp / PgDn | Previous / next gate mark |
+| `[` / `]` | Slower / faster playback (0.1x - 8x) |
+| Delete | Delete the selected mark (when the table has focus) |
+
+Audio is muted by default (checkbox under the video).
+
+### Changing the Mark gate hotkey
+
+The default is **Z**. To use a different key choose **View → Mark gate hotkey…**, click the box and press
+the key (a single key, optionally with Ctrl / Shift / Alt, e.g. `Ctrl+G`), then *Save*. It warns if the key
+is already used for something else (Space, arrows, J/K/L, PgUp/PgDn, Delete…). The choice is remembered, and
+the button label and the hint under the video update to show it. *Reset to Z* restores the default.
+
+### Dark mode
+
+**View → Theme** offers *Follow system*, *Light* and *Dark*. The choice is remembered. Charts and
+dialogs follow the theme too.
+
+### Marks and laps table
+
+- Each row is a gate pass. The lap time on a row is the time since the previous mark.
+- Click a row to jump the video to that mark.
+- Tick **Bad lap** to exclude that lap (the lap *ending* at that mark). Bad laps are greyed out,
+  never counted as a fastest lap, and **break a run of 3**, so "fastest 3 consecutive" is always three
+  good laps in a row.
+- **Delete mark** removes a mark (the two neighbouring laps merge).
+- **Move mark here** moves the selected mark to the current video position, for fixing a mark that
+  was placed slightly off.
+
+## Tracks and session dates
+
+- **Track** groups videos from the same course. It is an editable dropdown: pick an existing track
+  or type a new name.
+- **Session date** controls ordering in the library list and charts. Choose *Use file date* (the
+  file's modified date), *Set date* (manual), or *Keep as is*. Set it manually for copied or
+  re-saved files whose file date is wrong.
+- **Right-click** a video in the library for the quickest way: **Assign to track** lists your existing
+  tracks (ticked if the selected videos are already on it) plus **New track…**; **Remove from track**
+  clears it; **Track & session date…** opens the full dialog. It works on a multi-selection, and
+  right-clicking an unselected video acts on just that one.
+- Select several videos (Shift/Ctrl-click) to tag them all at once. Fields that differ between the
+  selected videos are left alone unless you change them.
+- The dropdown above the library list filters it by track. Videos you add while a track is selected
+  join that track.
+
+## Reports
+
+- **Per video** (right panel): good / total laps, fastest lap, fastest 3 consecutive laps.
+- **Lap chart** (right panel): bar chart of one video's laps. Green = fastest, grey = bad, dashed blue
+  box = fastest 3 consecutive. Hover a bar for details.
+- **Library stats** (left panel): pick a track (or *All tracks*) to see its fastest lap and fastest 3,
+  a per-video table, and a **By track** table comparing every track.
+- **Progress chart** (in Library stats): one point per video in session-date order, showing fastest lap
+  and best-3 average per lap for the selected track, to see improvement over time.
+- **Export CSV**: from the right panel (current video) or Library stats (selected track). Columns:
+  `track, session_date, video, lap, start_s, end_s, lap_time_s, lap_time, bad_lap`. Bad laps are
+  included and marked `yes`, so you can filter them in a spreadsheet.
+
+Fastest-3 is calculated within a single video; it never spans two videos.
+
+### Export the fastest 3 laps as a video
+
+Makes a shareable video of your fastest 3 consecutive laps with a lap timer drawn on it.
+
+- **From the open video:** **🎬 Export fastest 3 video…** in the right panel exports that video's fastest
+  3 consecutive laps. **From a track:** **Library stats → 🎬 Export fastest 3 video (this track)…** exports
+  the single fastest 3 across all videos on the selected track (or *All tracks*), whichever video they
+  are in. Choose the file name and click *Export*; a progress bar shows how far it is and *Cancel*
+  removes the partial file.
+- **What you get:** an MP4 (H.264) of the **original footage**, not the smooth copy, at its original
+  resolution and frame rate (a 90 fps video stays 90 fps), cut on the exact frames you marked, with
+  1 s before the first gate and, by default, 2 s after the last one (set "End padding" in the export dialog, 0–10 s). It is re-encoded at high quality
+  (x264 CRF 16, slow preset) with BT.709 colours so it plays correctly on YouTube, Discord and phones.
+  Audio is kept if the source has any.
+- **The overlay:** top left, the current lap number and a running lap timer that restarts at each gate,
+  with each finished lap's time listed underneath; top right, the track name and date and the running
+  3-lap total; after the last gate the final lap and total are held on screen and a gold
+  *FASTEST 3 CONSECUTIVE LAPS m:ss.mmm* banner appears.
+- **Notes:** if your ffmpeg has no H.264 encoder (libx264) the app tells you so in plain words, with the fix for
+  your system, before it starts (for exports and for smooth-scrub copies). It needs ffmpeg with libx264 and a bold font file (found automatically: DejaVu Sans Bold / Liberation on
+  Linux, Arial on Windows and macOS). Exporting is slow because it is a high-quality re-encode: about 30 s for a 28 s 60 fps clip on a fast machine and a few minutes for a 90 fps clip read from a network share, so leave it running. The source video
+  must be reachable (a network share that is offline shows an error). YouTube plays up to 60 fps, so
+  a 90 fps export will be shown at 60 there; the file itself is left untouched.
+
+## Notes
+
+- If something unexpected goes wrong the app shows a message in the status bar and keeps running
+  instead of closing; the details are written to `errors.log` next to the library database.
+- *Remove* only deletes the video from the library (and its marks); the file is untouched.
+- Playback of `.ts` files uses Qt's ffmpeg backend. If a file won't play, check the status bar for
+  the player error.

@@ -1,0 +1,8 @@
+__pycache__/
+.buildvenv/
+.venv/
+build/
+dist/
+*.spec
+version_info.txt
+TestVideo.ts
