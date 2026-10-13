@@ -347,7 +347,7 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
   total of the N laps; after the last gate the final lap and total are held on screen and a gold
   *FASTEST N CONSECUTIVE LAPS m:ss.mmm* banner appears.
 - **Notes:** if your ffmpeg has no H.264 encoder (libx264) the app tells you so in plain words, with the fix for
-  your system, before it starts (for exports and for smooth-scrub copies). It needs ffmpeg with libx264 and a bold font file (found automatically: DejaVu Sans Bold / Liberation on
+  your system, before it starts (for exports and for smooth-scrub copies). It needs ffmpeg with libx264 and the `drawtext` filter (built with freetype; every normal full build has it, and the app checks and tells you before exporting) and a bold font file (found automatically: DejaVu Sans Bold / Liberation on
   Linux, Arial on Windows and macOS). Exporting is slow because it is a high-quality re-encode: about 30 s for a 28 s 60 fps clip on a fast machine and a few minutes for a 90 fps clip read from a network share, so leave it running. The source video
   must be reachable (a network share that is offline shows an error). YouTube plays up to 60 fps, so
   a 90 fps export will be shown at 60 there; the file itself is left untouched.
@@ -365,6 +365,10 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
 tags remain), so this list is the record of what changed in each version.
+
+### Unreleased
+- Export video: the app now checks, before starting, that your ffmpeg has the `drawtext` filter (needed for the
+  lap timer overlay) and explains the fix if it is missing, instead of failing with an ffmpeg error.
 
 ### 1.10.0
 - Internal names now match the app name: the exe and installer are `FPVDVRLapTimer.exe` / `FPVDVRLapTimer-Setup.exe`

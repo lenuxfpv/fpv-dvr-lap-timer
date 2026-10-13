@@ -696,6 +696,25 @@ def ffmpeg_has_encoder(name="libx264"):
     return _encoder_cache[key]
 
 
+_filter_cache = {}
+
+
+def ffmpeg_has_filter(name):
+    """True if the ffmpeg we would use has the video/audio filter `name`. (Assumes yes if we can't tell.)"""
+    ffmpeg = find_tool("ffmpeg")
+    if not ffmpeg:
+        return False
+    key = (ffmpeg, name)
+    if key not in _filter_cache:
+        try:
+            out = subprocess.run([ffmpeg, "-hide_banner", "-filters"], capture_output=True, text=True, timeout=20,
+                                 creationflags=0x08000000 if sys.platform == "win32" else 0).stdout
+            _filter_cache[key] = re.search(rf"^\s*\S+\s+{re.escape(name)}\s", out, re.M) is not None
+        except Exception:
+            _filter_cache[key] = True
+    return _filter_cache[key]
+
+
 FFMPEG_DOWNLOAD_URL = "https://ffmpeg.org/download.html"
 
 
@@ -719,7 +738,24 @@ def x264_help():
         fix = ("Install the full ffmpeg from your package manager and restart the app. On Fedora, enable RPM Fusion "
                "and run:  sudo dnf swap ffmpeg-free ffmpeg --allowerasing")
     return ("Your ffmpeg can't encode H.264 video (it has no 'libx264' encoder). That is needed for smooth-scrub "
-            "copies and for exporting the fastest-3 video.\n\n" + fix)
+            "copies and for exporting the fastest-laps video.\n\n" + fix)
+
+
+def drawtext_help():
+    """Plain-language explanation of an ffmpeg without the 'drawtext' filter (built without freetype)."""
+    if sys.platform == "win32":
+        fix = "Install a full build: run  winget install Gyan.FFmpeg  and restart the app."
+    elif sys.platform == "darwin":
+        fix = "Install a full build: run  brew install ffmpeg  and restart the app."
+    else:
+        fix = "Install the full ffmpeg from your package manager (not a minimal build) and restart the app."
+    return ("Your ffmpeg can't draw text on video (it has no 'drawtext' filter, which needs the freetype library). "
+            "That is needed to put the lap timer on the exported video.\n\n" + fix)
+
+
+def is_drawtext_error(text):
+    t = (text or "").lower()
+    return "drawtext" in t and ("no such filter" in t or "not found" in t or "freetype" in t or "unknown filter" in t)
 
 
 def is_x264_error(text):
@@ -1151,6 +1187,9 @@ class ExportDialog(QDialog):
         if not ffmpeg_has_encoder("libx264"):
             QMessageBox.warning(self, "H.264 encoder missing", x264_help())
             return
+        if not ffmpeg_has_filter("drawtext"):
+            QMessageBox.warning(self, "Text filter missing", drawtext_help())
+            return
         if not font:
             QMessageBox.warning(self, "Font needed", "No bold font file was found for the timer overlay.")
             return
@@ -1248,6 +1287,8 @@ class ExportDialog(QDialog):
         self.status.setStyleSheet("color:#c62828")
         if is_x264_error(err):
             self.status.setText(x264_help())
+        elif is_drawtext_error(err):
+            self.status.setText(drawtext_help())
         else:
             self.status.setText(f"Export failed: {err[-300:] or 'ffmpeg exited with code ' + str(code)}")
         self.go.setEnabled(True)
