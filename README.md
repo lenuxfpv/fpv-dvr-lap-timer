@@ -141,11 +141,6 @@ Preferences (theme, keyboard shortcuts, the *Auto-build* / *Build when adding* c
 separately by Qt (Linux `~/.config/fpv-dvr-lap-timer/app.conf`, Windows registry) and are not part of the
 library file.
 
-*Upgrading from 1.9 or earlier:* those versions used the name `fpv-lap-timer` for the folders above. The first start of
-the new version moves the library and smooth-copy folders to the new names (one rename; nothing is copied or deleted,
-and if the move isn't possible the old folder is simply kept in use) and copies your saved preferences across, so
-your library, copies, keyboard shortcuts and export choices carry over untouched.
-
 **Duplicate protection.** Adding a file that is already in the library (the same file reached through a
 different path, a symlink, or a copy with the same name, size and date) is refused with a warning
 listing what was skipped, because the same laps would otherwise be counted twice in your stats. If
@@ -412,6 +407,7 @@ The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapT
 tags remain), so this list is the record of what changed in each version.
 
 ### Unreleased
+- README: removed the *Upgrading from 1.9 or earlier* note.
 - README: tidied the Install section (a quick chooser, one *What it needs* list, and the Windows, Linux and source routes in separate parts).
 - README: the screenshot and *Why I made it* now sit together at the top, followed by a clearer description of what the app is and what it can do.
 
