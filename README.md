@@ -33,7 +33,6 @@ placed on a frame you can see, the times are accurate to the frame and easy to d
   optional start and end pictures (your pilot handle, say), your own audio or none, and padding either side.
 - **Export your data.** Lap times to CSV, and the whole library to a single file you can back up, move to another
   computer or merge into another library.
-- **Make it yours.** Every key can be rebound, and there are light and dark themes.
 - **Stay safe.** Your DVR files are never modified or deleted; everything the app stores is in one small database
   and a cache folder (see *Where your data lives*).
 
