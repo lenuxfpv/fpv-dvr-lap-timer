@@ -10,6 +10,10 @@ Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each 
 start gate, and get lap times, fastest lap and your fastest run of consecutive laps (3 by default, 2-10 if you prefer). Videos are kept in a
 library grouped by track and session date.
 
+**Why I made it:** I was looking for an easy way to review my DVR files to find my laps for competing in
+RaceGOW. The app never modifies the DVR video files, and it can export a video of my fastest laps that I can
+submit as my RaceGOW entry.
+
 ## Install
 
 On Windows the easiest route is the `FPVLapTimer-Setup.exe` installer (see *Windows* below), which needs
