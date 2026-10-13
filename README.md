@@ -348,7 +348,7 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
   "End padding" in the export dialog, 0–10 s each; **Reset padding** puts both back to the defaults; your
   choice is remembered; the start can't go earlier than the start of the video). It is re-encoded at high quality
   (x264 CRF 16, slow preset) with BT.709 colours so it plays correctly on YouTube, Discord and phones.
-  Audio is kept if the source has any.
+  Audio is kept if the source has any, unless you tick **Remove audio** in the export dialog (remembered).
 - **The overlay:** top left, the current lap number and a running lap timer that restarts at each gate,
   with each finished lap's time listed underneath; top right, the track name and date and the running
   total of the N laps; after the last gate the final lap and total are held on screen and a gold
@@ -373,6 +373,7 @@ Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
 
 ### Unreleased
+- Export video: new **Remove audio** checkbox to export without a sound track.
 - The app is now called **FPV DVR Lap Timer** (window title, About, shortcuts, the installer and the Settings >
   Apps entry). File names, the library folder and settings are unchanged, so nothing needs migrating; the
   installer replaces the old "FPV Lap Timer" shortcuts.

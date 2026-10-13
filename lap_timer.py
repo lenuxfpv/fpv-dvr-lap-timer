@@ -751,7 +751,8 @@ def _filter_text(text):
     return str(text).replace("\\", "").replace("'", "\u2019").replace("%", "").replace("\n", " ")
 
 
-def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS):
+def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS,
+                      no_audio=False):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
     Returns (argv, clip_ms): the argument list and the length of the output clip."""
@@ -827,14 +828,16 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     tags = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
     vf = ",".join([cut, convert] + parts + [tags, "format=yuv420p"])
     audio = (["-af", f"atrim=start={skip:.6f}:duration={clip_ms / 1000:.6f},asetpts=PTS-STARTPTS"]
-             if info.get("audio") else [])
+             if info.get("audio") and not no_audio else [])
+    audio_map = ["-an"] if no_audio else ["-map", "0:a:0?"]                  # -an: leave the sound track out
+    audio_enc = [] if no_audio else ["-c:a", "aac", "-b:a", "192k"]
     argv = ["-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
             "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src), "-t", f"{clip_ms / 1000 + 0.5:.3f}",
-            "-map", "0:v:0", "-map", "0:a:0?", "-vf", vf, *audio,
+            "-map", "0:v:0", *audio_map, "-vf", vf, *audio,
             *(SYNC_FLAGS_OLD if legacy_sync else SYNC_FLAGS),
             "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p",
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
-            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)]
+            *audio_enc, "-movflags", "+faststart", str(out)]
     return argv, clip_ms
 
 
@@ -892,6 +895,9 @@ class ExportDialog(QDialog):
                                       "Footage kept before the first gate, with the lap timer waiting at 0:00.000")
         self.tail_spin = padding_spin("export_tail_s", EXPORT_TAIL_MS,
                                       "Footage kept after the last lap, with the final total on screen")
+        self.no_audio = QCheckBox("Remove audio")
+        self.no_audio.setToolTip("Export the video without a sound track")
+        self.no_audio.setChecked(self.settings.value("export_no_audio", False, type=bool))
         self.reset_pad = QPushButton("Reset padding")
         self.reset_pad.setToolTip(f"Back to the defaults: {EXPORT_LEAD_MS / 1000:g} s before, "
                                   f"{EXPORT_TAIL_MS / 1000:g} s after")
@@ -914,6 +920,7 @@ class ExportDialog(QDialog):
         trow.addWidget(self.reset_pad)
         trow.addStretch(1)
         lay.addLayout(trow)
+        lay.addWidget(self.no_audio)
         lay.addWidget(self.bar)
         lay.addWidget(self.status)
         btns = QHBoxLayout(); btns.addStretch(1); btns.addWidget(self.cancel); btns.addWidget(self.go)
@@ -950,6 +957,7 @@ class ExportDialog(QDialog):
                 self, "Replace file?", f"{self.final.name} already exists. Replace it?") != QMessageBox.StandardButton.Yes:
             return
         self.part = self.final.with_name(self.final.stem + ".part.mp4")
+        self.settings.setValue("export_no_audio", self.no_audio.isChecked())
         self.settings.setValue("export_lead_s", self.lead_spin.value())
         self.settings.setValue("export_tail_s", self.tail_spin.value())
         self.font, self.info = font, probe_stream(self.win["path"])
@@ -959,7 +967,8 @@ class ExportDialog(QDialog):
         argv, self.clip_ms = build_export_args(self.win, self.win["path"], self.part, self.font, self.info,
                                                legacy_sync=self.legacy,
                                                tail_ms=int(self.tail_spin.value() * 1000),
-                                               lead_ms=int(self.lead_spin.value() * 1000))
+                                               lead_ms=int(self.lead_spin.value() * 1000),
+                                               no_audio=self.no_audio.isChecked())
         self.buf = ""
         self.proc = QProcess(self)
         hide_console(self.proc)
@@ -972,6 +981,7 @@ class ExportDialog(QDialog):
         self.lead_spin.setEnabled(False)
         self.tail_spin.setEnabled(False)
         self.reset_pad.setEnabled(False)
+        self.no_audio.setEnabled(False)
         self.bar.setValue(0); self.bar.show()
         self.status.setText("Exporting… high quality takes a while (a few minutes for a typical 25-30 s clip, longer at 90 fps).")
         self.proc.start()
@@ -1015,6 +1025,7 @@ class ExportDialog(QDialog):
         self.lead_spin.setEnabled(True)
         self.tail_spin.setEnabled(True)
         self.reset_pad.setEnabled(True)
+        self.no_audio.setEnabled(True)
         self.bar.hide()
 
     def kill_job(self):
