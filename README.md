@@ -36,7 +36,7 @@ you and prints the fix for your distro. Uninstalling leaves your library alone a
 
 Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop shortcut too, and
 `install.bat -Uninstall` to remove them). It creates a private `.venv`, installs PyQt6, and adds a
-Start Menu shortcut. Needs Python 3.9+; if Python or ffmpeg is missing it offers to install them with winget (or run `winget install Python.Python.3.12` yourself). For frame rates install
+Start Menu shortcut and an "FPV Lap Timer" entry in Settings > Apps (Add/Remove Programs) that runs the uninstall. Needs Python 3.9+; if Python or ffmpeg is missing it offers to install them with winget (or run `winget install Python.Python.3.12` yourself). For frame rates install
 ffmpeg (`winget install Gyan.FFmpeg`) or copy `ffmpeg.exe` and `ffprobe.exe` into a `bin` folder next
 to the app. Uninstalling removes the shortcuts and leaves your library alone; it asks whether to also delete the
 cached smooth copies (`%LOCALAPPDATA%\fpv-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`

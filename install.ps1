@@ -4,14 +4,18 @@
 #   install.bat -Uninstall      remove the shortcuts (keeps your library and videos);
 #                               asks whether to also delete the smooth-scrub copies
 #   install.bat -Uninstall -ClearCache    same, and delete the copies without asking
+# Install also adds an "FPV Lap Timer" entry to Settings > Apps that runs the uninstall.
 param([switch]$Desktop, [switch]$Uninstall, [switch]$ClearCache)
 $ErrorActionPreference = "Stop"
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\FPV Lap Timer.lnk"
 $DesktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "FPV Lap Timer.lnk"
+# Entry in Settings > Apps (appwiz.cpl). HKCU, so no admin rights are needed.
+$UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FPVLapTimer"
 
 if ($Uninstall) {
     Remove-Item -Force -ErrorAction SilentlyContinue $StartMenu, $DesktopLnk
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $UninstallKey
     Write-Host "Shortcuts removed. Your library ($env:APPDATA\fpv-lap-timer) and videos were not touched."
     $Cache = Join-Path $env:LOCALAPPDATA "fpv-lap-timer"
     if (Test-Path $Cache) {
@@ -45,7 +49,7 @@ function Install-WithWinget($id, $label) {
     }
     $answer = Read-Host "Install $label now with winget? [Y/n]"
     if ($answer -match '^\s*n') { return $false }
-    winget install --id $id -e --accept-package-agreements --accept-source-agreements
+    winget install --id $id -e --accept-package-agreements --accept-source-agreements | Out-Host
     if ($LASTEXITCODE -ne 0) {
         Write-Host "winget could not install $label (exit code $LASTEXITCODE)." -ForegroundColor Yellow
         return $false
@@ -148,5 +152,27 @@ function New-Shortcut($path) {
 }
 New-Shortcut $StartMenu
 if ($Desktop) { New-Shortcut $DesktopLnk }
+
+# --- Settings > Apps entry (lets the user uninstall from Windows) ---------------------------
+try {
+    $version = ((Select-String -Path (Join-Path $Dir "lap_timer.py") -Pattern '^VERSION = "(.*)"' |
+                 Select-Object -First 1).Matches.Groups[1].Value)
+    $kb = [int](((Get-ChildItem $Dir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum) / 1KB)
+    New-Item -Path $UninstallKey -Force | Out-Null
+    $props = @{
+        DisplayName     = "FPV Lap Timer"
+        DisplayVersion  = $version
+        Publisher       = "FPV Lap Timer"
+        InstallLocation = $Dir
+        DisplayIcon     = (Join-Path $Dir "fpv-lap-timer.ico")
+        UninstallString = 'cmd.exe /c ""' + (Join-Path $Dir "install.bat") + '" -Uninstall"'
+    }
+    foreach ($k in $props.Keys) { New-ItemProperty -Path $UninstallKey -Name $k -Value $props[$k] -PropertyType String -Force | Out-Null }
+    foreach ($k in @("NoModify", "NoRepair")) { New-ItemProperty -Path $UninstallKey -Name $k -Value 1 -PropertyType DWord -Force | Out-Null }
+    New-ItemProperty -Path $UninstallKey -Name EstimatedSize -Value $kb -PropertyType DWord -Force | Out-Null
+} catch {
+    Write-Host "Note: could not add the Settings > Apps uninstall entry ($($_.Exception.Message)). Use install.bat -Uninstall instead." -ForegroundColor Yellow
+}
+
 Write-Host ""
-Write-Host "Installed. Find 'FPV Lap Timer' in the Start Menu." -ForegroundColor Green
+Write-Host "Installed. Find 'FPV Lap Timer' in the Start Menu (uninstall from Settings > Apps)." -ForegroundColor Green
