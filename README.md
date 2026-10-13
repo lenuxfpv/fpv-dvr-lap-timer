@@ -150,10 +150,13 @@ LAPS      FASTEST     FASTEST 3
 
 ## Workflow
 
-1. **Add videos** with *Add videos…*, *Add folder…* (scans subfolders), or drag and drop. For a folder (chosen
-   or dropped) a list of every video file found, with its subfolder and size, is shown first: all are ticked,
-   untick the ones you don't want (or *Select none* / *Select all*) and click *Add N videos*. Files already in
-   the library are listed greyed out and are not added again.
+1. **Add videos** with *Add videos…*, *Add folder…* (scans subfolders), or drag and drop a folder. A list of the
+   video files is shown first (for a folder: every file found, with its subfolder and size): all are ticked,
+   untick the ones you don't want (or *Select none* / *Select all*), choose a **track** for each file in the
+   *Track* column (or pick one in the *Track* box under the list and press *Set track for ticked files*, and use
+   *＋ New track…* for a track that doesn't exist yet), then click *Add N videos*. The track starts as the one you
+   are viewing in the library list. Files already in the library are listed greyed out and are not added again.
+   Dropping loose files adds them straight away, to the track being viewed.
 2. Select videos and click **Track / date…** to set a track name and session date (see below).
 3. Double-click a video to open it.
 4. Play or scrub to the moment you pass through the gate and press **Z** (or the green button; you can change the key, see below).
@@ -358,6 +361,10 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- **Add videos…** and **Add folder…** now let you choose the track for each file as you add it (or for all the
+  ticked files at once, including creating a new track), so you don't have to update each video afterwards.
 
 ### 1.8.0
 - **Add folder** (and dropping a folder) now shows every video file found in it and its subfolders first, so you

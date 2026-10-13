@@ -1447,61 +1447,132 @@ class ProgressDialog(QDialog):
 # Add folder: choose which of the videos found to add
 # ----------------------------------------------------------------------------
 class AddVideosDialog(QDialog):
-    """Lists the video files found in a folder (and its subfolders) with a tick box each, so the user can
-    add them all or untick the ones they don't want. Files already in the library are shown but not ticked."""
-    def __init__(self, entries, parent=None, title="Add videos", intro=""):
+    """Lists the video files about to be added with a tick box and a track each, so the user can add them all
+    or untick the ones they don't want, and put each file (or all the ticked ones at once) on a track.
+    Files already in the library are shown but not ticked."""
+    NEW_TRACK_TEXT = "＋ New track…"
+
+    def __init__(self, entries, tracks, default_track="", parent=None, title="Add videos", intro=""):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(760, 520)
+        self.resize(900, 560)
+        self.tracks = list(tracks)                  # track names offered in every dropdown
         # entries: [(path, shown name, size in bytes or None, already in the library)]
-        self.list = QListWidget()
-        for path, shown, size, known in sorted(entries, key=lambda e: e[1].lower()):
-            text = shown + (f"    ({size / 1e9:.1f} GB)" if size and size >= 1e9 else
-                            f"    ({size / 1e6:,.0f} MB)" if size and size >= 1e6 else
-                            "    (<1 MB)" if size is not None else "")
-            item = QListWidgetItem(text + ("    - already in the library" if known else ""))
-            item.setToolTip(str(path))
-            item.setData(Qt.ItemDataRole.UserRole, str(path))
+        rows = sorted(entries, key=lambda e: e[1].lower())
+        self.table = QTableWidget(len(rows), 4)
+        self.table.setHorizontalHeaderLabels(["Add", "File", "Size", "Track"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnWidth(0, 44); self.table.setColumnWidth(2, 80); self.table.setColumnWidth(3, 200)
+        self.combos = []
+        for r, (path, shown, size, known) in enumerate(rows):
+            tick = QTableWidgetItem()
+            name = QTableWidgetItem(shown + ("    - already in the library" if known else ""))
+            name.setToolTip(str(path))
+            name.setData(Qt.ItemDataRole.UserRole, str(path))
+            size_text = ("" if size is None else f"{size / 1e9:.1f} GB" if size >= 1e9 else
+                         f"{size / 1e6:,.0f} MB" if size >= 1e6 else "<1 MB")
+            size_item = QTableWidgetItem(size_text)
+            combo = QComboBox()
+            self.fill_combo(combo, default_track)
+            combo.activated.connect(lambda _i, c=combo: self.on_combo(c))
             if known:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable & ~Qt.ItemFlag.ItemIsEnabled)
+                for it in (tick, name, size_item):
+                    it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                tick.setFlags(tick.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+                combo.setEnabled(False)
             else:
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Checked)
-            self.list.addItem(item)
-        self.list.itemChanged.connect(self.update_count)
+                tick.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                tick.setCheckState(Qt.CheckState.Checked)
+            self.table.setItem(r, 0, tick); self.table.setItem(r, 1, name); self.table.setItem(r, 2, size_item)
+            self.table.setCellWidget(r, 3, combo)
+            self.combos.append(combo)
+        self.table.itemChanged.connect(self.update_count)
+
         self.count = QLabel()
         all_btn, none_btn = QPushButton("Select all"), QPushButton("Select none")
         all_btn.clicked.connect(lambda: self.set_all(Qt.CheckState.Checked))
         none_btn.clicked.connect(lambda: self.set_all(Qt.CheckState.Unchecked))
+        self.bulk = QComboBox()
+        self.fill_combo(self.bulk, default_track)
+        self.bulk.activated.connect(lambda _i: self.on_combo(self.bulk))
+        apply_btn = QPushButton("Set track for ticked files")
+        apply_btn.clicked.connect(self.apply_bulk)
         self.add = QPushButton()
         self.add.setDefault(True)
         self.add.clicked.connect(self.accept)
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
+
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel(intro or "These video files were found. Untick any you don't want to add."))
-        lay.addWidget(self.list, 1)
-        top = QHBoxLayout(); top.addWidget(all_btn); top.addWidget(none_btn); top.addStretch(1); top.addWidget(self.count)
+        lay.addWidget(QLabel(intro or "Untick any file you don't want to add, and choose the track for each."))
+        lay.addWidget(self.table, 1)
+        top = QHBoxLayout()
+        top.addWidget(all_btn); top.addWidget(none_btn); top.addSpacing(20)
+        top.addWidget(QLabel("Track:")); top.addWidget(self.bulk); top.addWidget(apply_btn)
+        top.addStretch(1); top.addWidget(self.count)
         lay.addLayout(top)
         row = QHBoxLayout(); row.addStretch(1); row.addWidget(cancel); row.addWidget(self.add)
         lay.addLayout(row)
         self.update_count()
 
-    def checkable_items(self):
-        return [self.list.item(i) for i in range(self.list.count())
-                if self.list.item(i).flags() & Qt.ItemFlag.ItemIsUserCheckable]
+    # ---- track dropdowns
+    def fill_combo(self, combo, current):
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("(no track)", "")
+        for t in self.tracks:
+            combo.addItem(t, t)
+        combo.addItem(self.NEW_TRACK_TEXT, None)
+        i = combo.findData(current) if current else 0
+        combo.setCurrentIndex(max(i, 0))
+        combo.setProperty("last", combo.currentIndex())
+        combo.blockSignals(False)
+
+    def on_combo(self, combo):
+        if combo.currentData() is None:             # "＋ New track…"
+            text, ok = QInputDialog.getText(self, "New track", "Name of the new track:")
+            name = " ".join(text.split()) if ok else ""
+            if not name:
+                combo.setCurrentIndex(combo.property("last") or 0)
+                return
+            same = next((t for t in self.tracks if t.lower() == name.lower()), None)
+            if same is None:
+                self.tracks.append(name)
+                self.tracks.sort(key=str.lower)
+                same = name
+            for c in self.combos + [self.bulk]:      # offer it everywhere, keeping each box's own choice
+                keep = c.currentData() if c is not combo else same
+                self.fill_combo(c, keep)
+            return
+        combo.setProperty("last", combo.currentIndex())
+
+    def apply_bulk(self):
+        track = self.bulk.currentData() or ""
+        for r, combo in enumerate(self.combos):
+            if combo.isEnabled() and self.table.item(r, 0).checkState() == Qt.CheckState.Checked:
+                self.fill_combo(combo, track)
+
+    # ---- ticking
+    def checkable_rows(self):
+        return [r for r in range(self.table.rowCount())
+                if self.table.item(r, 0).flags() & Qt.ItemFlag.ItemIsUserCheckable]
 
     def set_all(self, state):
-        for item in self.checkable_items():
-            item.setCheckState(state)
+        for r in self.checkable_rows():
+            self.table.item(r, 0).setCheckState(state)
 
     def selected(self):
-        return [it.data(Qt.ItemDataRole.UserRole) for it in self.checkable_items()
-                if it.checkState() == Qt.CheckState.Checked]
+        """[(path, track)] for the ticked files; track '' means no track."""
+        return [(self.table.item(r, 1).data(Qt.ItemDataRole.UserRole), self.combos[r].currentData() or "")
+                for r in self.checkable_rows() if self.table.item(r, 0).checkState() == Qt.CheckState.Checked]
 
     def update_count(self, *_):
-        n, total = len(self.selected()), len(self.checkable_items())
-        known = self.list.count() - total
+        n, total = len(self.selected()), len(self.checkable_rows())
+        known = self.table.rowCount() - total
         self.count.setText(f"{n} of {total} selected" + (f"  ({known} already in the library)" if known else ""))
         self.add.setText(f"Add {n} video{'s' if n != 1 else ''}")
         self.add.setEnabled(n > 0)
@@ -2714,7 +2785,8 @@ class MainWindow(QMainWindow):
     def add_files(self):
         files, _ = QFileDialog.getOpenFileNames(
             self, "Add videos", str(Path.home()), "Video (*.ts *.mp4 *.mov *.mkv *.m4v *.avi);;All files (*)")
-        self.add_paths(files)
+        if files:
+            self.add_with_preview(files, what="in the selection", title="Add videos")
 
     def add_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Add videos from folder", str(Path.home()))
@@ -2722,9 +2794,9 @@ class MainWindow(QMainWindow):
             paths = [p for p in Path(folder).rglob("*") if p.suffix.lower() in VIDEO_EXTS]
             self.add_with_preview(paths, root=Path(folder), what=f"in {folder}")
 
-    def add_with_preview(self, paths, root=None, what=""):
-        """Show the video files that would be added (a folder and its subfolders), let the user untick
-        the ones they don't want, then add the rest."""
+    def add_with_preview(self, paths, root=None, what="", title="Add videos from folder"):
+        """Show the video files that would be added (picked files, or a folder and its subfolders), let the user
+        untick the ones they don't want and choose a track for each, then add the rest."""
         known_paths = {str(Path(p).resolve()) for _, p, _ in self.lib.videos()}
         known_ids = {i for i in (file_identity(p) for _, p, _ in self.lib.videos()) if i}
         entries = []
@@ -2748,12 +2820,21 @@ class MainWindow(QMainWindow):
             return
         n_sub = len({Path(shown).parent for _, shown, _, _ in entries if Path(shown).parent != Path(".")})
         intro = (f"{len(entries)} video file(s) found {what}" + (f", in {n_sub} subfolder(s)" if n_sub else "") +
-                 ". Untick any you don't want to add.")
-        dlg = AddVideosDialog(entries, self, "Add videos from folder", intro)
+                 ". Untick any you don't want to add, and choose the track for each file (or for all the ticked "
+                 "files at once with the Track box below).")
+        shown_track = self.track_filter.currentData()
+        default_track = shown_track if isinstance(shown_track, str) and shown_track not in (NEW_TRACK, RENAME_TRACK, DELETE_TRACK) else ""
+        dlg = AddVideosDialog(entries, self.lib.tracks(), default_track, self, title, intro)
         if dlg.exec():
-            self.add_paths(dlg.selected())
+            chosen = dlg.selected()
+            used = {t for _, t in chosen}
+            if shown_track is not None and shown_track not in used:      # keep the new videos visible
+                self.pending_filter = next(iter(used)) if len(used) == 1 else None
+            self.add_paths([p for p, _ in chosen], tracks={str(Path(p).resolve()): t for p, t in chosen})
 
-    def add_paths(self, paths):
+    def add_paths(self, paths, tracks=None):
+        """Add videos to the library. `tracks` ({resolved path: track name, '' = none}) sets each new video's
+        track; without it new videos join the track being viewed."""
         paths = [p for p in paths if Path(p).suffix.lower() in VIDEO_EXTS]
         if not paths:
             return
@@ -2778,8 +2859,9 @@ class MainWindow(QMainWindow):
                 if vid not in known:
                     known.add(vid)
                     new_videos.append((vid, resolved))
-                    if track:
-                        self.lib.set_meta([vid], track=track)
+                    own = tracks.get(resolved, track) if tracks is not None else track
+                    if own:
+                        self.lib.set_meta([vid], track=own)
                 if ident:
                     existing[ident] = resolved
         finally:
