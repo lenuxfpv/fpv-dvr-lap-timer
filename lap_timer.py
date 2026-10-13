@@ -73,16 +73,7 @@ def proxy_path(src):
     except OSError:
         return cache_dir() / (hashlib.sha1(f"{src}".encode()).hexdigest()[:20] + ".mp4")
     key = f"{vname(src)}|{st.st_size}|{st.st_mtime_ns}"
-    path = cache_dir() / (hashlib.sha1(key.encode()).hexdigest()[:20] + ".mp4")
-    if not path.exists():
-        # adopt a copy built by an earlier version, which keyed on the full path
-        legacy = cache_dir() / (hashlib.sha1(f"{src}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:20] + ".mp4")
-        if legacy.exists():
-            try:
-                legacy.rename(path)
-            except OSError:
-                return legacy
-    return path
+    return cache_dir() / (hashlib.sha1(key.encode()).hexdigest()[:20] + ".mp4")
 
 
 # FPV_LAP_TIMER_DB overrides the location (handy for a portable copy or testing)
@@ -588,7 +579,7 @@ class Library:
 
 def export_csv(lib, video_ids, path):
     """Write one row per lap for the given videos."""
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:      # BOM so Excel reads non-ASCII names
         w = csv.writer(f)
         w.writerow(["track", "session_date", "video", "lap", "start_s", "end_s",
                     "lap_time_s", "lap_time", "bad_lap"])
@@ -634,7 +625,8 @@ def best_run_window(lib, video_ids, n=None):
         if b3 and (best is None or b3[0] < best["total_ms"]):
             i = b3[1]
             ms = [marks[i + k][1] for k in range(n + 1)]
-            best = {"vid": vid, "path": paths[vid], "track": meta[vid][0], "date": meta[vid][1],
+            d = effective_date(paths[vid], meta[vid][1])[0]          # the session date, else the file's date
+            best = {"vid": vid, "path": paths[vid], "track": meta[vid][0], "date": d.isoformat() if d else "",
                     "marks_ms": ms, "lap_ms": [ms[k + 1] - ms[k] for k in range(n)], "total_ms": b3[0]}
     return best
 
@@ -2275,7 +2267,6 @@ class MainWindow(QMainWindow):
         self.seek_timer.timeout.connect(self._flush_seek)
         # smooth-scrub copy building
         self.settings = app_settings()
-        self.settings.remove("run_length")           # 1.4.x let the default be changed; it is fixed at 3 now
         self.build = None        # dict for the ffmpeg job in progress
         self.build_queue = []    # [(video_id, path)]
         self.legacy_ffmpeg = False   # set when this ffmpeg is too old for -fps_mode
@@ -3007,7 +2998,10 @@ class MainWindow(QMainWindow):
         if self.build and self.build["vid"] == vid:
             self.build["cancelled"] = True
             self.build["proc"].kill()
-        proxy_path(path).unlink(missing_ok=True)
+        mine = proxy_path(path)
+        shared = any(proxy_path(p) == mine for v, p, _ in self.lib.videos() if v != vid)   # a duplicate entry
+        if not shared:
+            mine.unlink(missing_ok=True)
         self.lib.remove_video(vid)
         self.refresh_library()
 
@@ -3761,7 +3755,7 @@ def install_error_handler(get_window):
         try:
             log = data_dir() / "errors.log"
             log.parent.mkdir(parents=True, exist_ok=True)
-            with open(log, "a") as f:
+            with open(log, "a", encoding="utf-8") as f:
                 f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S}\n{text}\n")
             win = get_window()
             if win:

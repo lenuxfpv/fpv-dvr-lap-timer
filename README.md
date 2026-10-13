@@ -234,7 +234,7 @@ times, so they are identical whichever version you used. More about the copies:
 
 - The copies live in a cache folder (Linux `~/.cache/fpv-dvr-lap-timer/smooth`, Windows
   `%LOCALAPPDATA%\fpv-dvr-lap-timer\smooth`), never next to your videos. **Clear smooth copies…**
-  deletes them to free space; they can be rebuilt. *Remove* also deletes that video's copy.
+  deletes them to free space; they can be rebuilt. *Remove* also deletes that video's copy, unless another entry for the same file still uses it.
 - A copy is found again by the video's **file name, size and modified date**, not its folder, so
   moving or reorganising your videos (or using *Fix paths…*) does not trigger a rebuild. It is rebuilt
   only if the file itself changes or you clear the cache. Two different videos with the same name,
