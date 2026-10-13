@@ -10,49 +10,6 @@ Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each 
 start gate, and get lap times, fastest lap and your fastest run of consecutive laps (3 by default, 2-10 if you prefer). Videos are kept in a
 library grouped by track and session date.
 
-## What's new in 1.7
-
-- **Start and end pictures in the export:** add a sticker (for example your pilot handle) to the centre of the
-  video at the beginning and/or the end; they can be different pictures. The export's *Save as* box now also
-  starts in the same folder as the source video, and the audio file you used last is remembered. See
-  [Export the fastest N laps as a video](#export-the-fastest-n-laps-as-a-video).
-
-### Also new in 1.6
-
-- **New name: FPV DVR Lap Timer**, and the missing icon in the window's title bar is fixed.
-- **Export video with different sound:** tick **Remove audio** for a video-only file, or choose
-  **Replace audio with:** your own audio file. See [Export the fastest N laps as a video](#export-the-fastest-n-laps-as-a-video).
-
-### Also new in 1.5
-
-- **Fastest run is set per track:** each track can have its own run length (2-10 laps) with the **Fastest run**
-  box in the right panel; tracks without one use 3. See [Reports](#reports).
-
-### Also new in 1.4
-
-- **Fastest run of N laps:** pick how many consecutive laps count (2-10, default 3) for each track with the
-  **Fastest run** box in the right panel. The library cards, stats, charts and the video export all follow it. See
-  [Reports](#reports). The export's suggested file name also drops the minutes when the total is under a
-  minute. In the export dialog you can also set a **Start padding** and reset both paddings to their defaults.
-
-### Also new in 1.3
-
-- **Empty tracks, rename and delete:** the library's track dropdown has **＋ New track…** to create a track
-  before it has any videos, and **Rename this track…** / **Delete this track…** for the selected one.
-  See [Tracks and session dates](#tracks-and-session-dates).
-
-### Also new in 1.2
-
-- **Every keyboard shortcut can be changed**, not just Mark gate: **View → Keyboard shortcuts…**
-  (clashing keys are blocked). See [Changing the keys](#changing-the-keys).
-- **Windows installer**: download `FPVLapTimer-Setup.exe` from the
-  [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases). No Python or admin rights needed, and
-  it adds a Settings > Apps entry to uninstall (with an option to delete the smooth-scrub cache).
-- **ffmpeg help**: if ffmpeg is missing, the app offers to install it (winget on Windows).
-- **Fix paths…** handles videos from several folders at once.
-
-Older releases are listed in the [Changelog](#changelog).
-
 ## Install
 
 On Windows the easiest route is the `FPVLapTimer-Setup.exe` installer (see *Windows* below), which needs
