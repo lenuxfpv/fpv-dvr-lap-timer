@@ -332,7 +332,9 @@ Makes a shareable video of your fastest N consecutive laps (N = *Fastest run of*
   removes the partial file.
 - **What you get:** an MP4 (H.264) of the **original footage**, not the smooth copy, at its original
   resolution and frame rate (a 90 fps video stays 90 fps), cut on the exact frames you marked, with
-  1 s before the first gate and, by default, 2 s after the last one (set "End padding" in the export dialog, 0–10 s). It is re-encoded at high quality
+  1 s before the first gate and 2 s after the last one by default (change them with "Start padding" and
+  "End padding" in the export dialog, 0–10 s each; **Reset padding** puts both back to the defaults; your
+  choice is remembered; the start can't go earlier than the start of the video). It is re-encoded at high quality
   (x264 CRF 16, slow preset) with BT.709 colours so it plays correctly on YouTube, Discord and phones.
   Audio is kept if the source has any.
 - **The overlay:** top left, the current lap number and a running lap timer that restarts at each gate,
@@ -357,6 +359,10 @@ Makes a shareable video of your fastest N consecutive laps (N = *Fastest run of*
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- Export video: new **Start padding** setting (footage before the first gate) next to End padding, and a
+  **Reset padding** button that restores both to their defaults (1 s before, 2 s after).
 
 ### 1.4.0
 - **Fastest run of N laps:** choose how many consecutive laps (2-10, default 3) the "fastest N" figures and

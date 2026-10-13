@@ -721,13 +721,13 @@ def _filter_text(text):
     return str(text).replace("\\", "").replace("'", "\u2019").replace("%", "").replace("\n", " ")
 
 
-def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS):
+def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
     Returns (argv, clip_ms): the argument list and the length of the output clip."""
     m = win["marks_ms"]
     n = len(win["lap_ms"])                                 # how many laps the window holds
-    lead = min(EXPORT_LEAD_MS, m[0])
+    lead = min(lead_ms, m[0])                              # can't start before the video does
     tail = tail_ms
     if info.get("duration_ms"):
         tail = max(0, min(tail, int(info["duration_ms"] - m[n])))
@@ -845,17 +845,27 @@ class ExportDialog(QDialog):
         self.status.setWordWrap(True)
         self.status.setStyleSheet("color:gray")
         self.settings = QSettings("fpv-lap-timer", "app")
-        self.tail_spin = QDoubleSpinBox()
-        self.tail_spin.setRange(0, 10)
-        self.tail_spin.setSingleStep(0.5)
-        self.tail_spin.setDecimals(1)
-        self.tail_spin.setSuffix(" s")
-        try:
-            tail_s = float(self.settings.value("export_tail_s", EXPORT_TAIL_MS / 1000))
-        except (TypeError, ValueError):
-            tail_s = EXPORT_TAIL_MS / 1000
-        self.tail_spin.setValue(tail_s)
-        self.tail_spin.setToolTip("Footage kept after the last lap, with the final total on screen")
+        def padding_spin(key, default_ms, tip):
+            spin = QDoubleSpinBox()
+            spin.setRange(0, 10)
+            spin.setSingleStep(0.5)
+            spin.setDecimals(1)
+            spin.setSuffix(" s")
+            try:
+                value = float(self.settings.value(key, default_ms / 1000))
+            except (TypeError, ValueError):
+                value = default_ms / 1000
+            spin.setValue(value)
+            spin.setToolTip(tip)
+            return spin
+        self.lead_spin = padding_spin("export_lead_s", EXPORT_LEAD_MS,
+                                      "Footage kept before the first gate, with the lap timer waiting at 0:00.000")
+        self.tail_spin = padding_spin("export_tail_s", EXPORT_TAIL_MS,
+                                      "Footage kept after the last lap, with the final total on screen")
+        self.reset_pad = QPushButton("Reset padding")
+        self.reset_pad.setToolTip(f"Back to the defaults: {EXPORT_LEAD_MS / 1000:g} s before, "
+                                  f"{EXPORT_TAIL_MS / 1000:g} s after")
+        self.reset_pad.clicked.connect(self.reset_padding)
         self.go = QPushButton("Export")
         self.go.setDefault(True)
         self.go.clicked.connect(self.start)
@@ -866,12 +876,23 @@ class ExportDialog(QDialog):
         lay.addWidget(summary)
         row = QHBoxLayout(); row.addWidget(QLabel("Save as:")); row.addWidget(self.path_edit, 1); row.addWidget(browse)
         lay.addLayout(row)
-        trow = QHBoxLayout(); trow.addWidget(QLabel("End padding:")); trow.addWidget(self.tail_spin); trow.addStretch(1)
+        trow = QHBoxLayout()
+        trow.addWidget(QLabel("Start padding:")); trow.addWidget(self.lead_spin)
+        trow.addSpacing(16)
+        trow.addWidget(QLabel("End padding:")); trow.addWidget(self.tail_spin)
+        trow.addSpacing(16)
+        trow.addWidget(self.reset_pad)
+        trow.addStretch(1)
         lay.addLayout(trow)
         lay.addWidget(self.bar)
         lay.addWidget(self.status)
         btns = QHBoxLayout(); btns.addStretch(1); btns.addWidget(self.cancel); btns.addWidget(self.go)
         lay.addLayout(btns)
+
+    def reset_padding(self):
+        """Put the start and end padding back to their default values."""
+        self.lead_spin.setValue(EXPORT_LEAD_MS / 1000)
+        self.tail_spin.setValue(EXPORT_TAIL_MS / 1000)
 
     def browse(self):
         p, _ = QFileDialog.getSaveFileName(self, "Save video", self.path_edit.text(), "MP4 video (*.mp4)")
@@ -899,6 +920,7 @@ class ExportDialog(QDialog):
                 self, "Replace file?", f"{self.final.name} already exists. Replace it?") != QMessageBox.StandardButton.Yes:
             return
         self.part = self.final.with_name(self.final.stem + ".part.mp4")
+        self.settings.setValue("export_lead_s", self.lead_spin.value())
         self.settings.setValue("export_tail_s", self.tail_spin.value())
         self.font, self.info = font, probe_stream(self.win["path"])
         self.run_ffmpeg(ffmpeg)
@@ -906,7 +928,8 @@ class ExportDialog(QDialog):
     def run_ffmpeg(self, ffmpeg):
         argv, self.clip_ms = build_export_args(self.win, self.win["path"], self.part, self.font, self.info,
                                                legacy_sync=self.legacy,
-                                               tail_ms=int(self.tail_spin.value() * 1000))
+                                               tail_ms=int(self.tail_spin.value() * 1000),
+                                               lead_ms=int(self.lead_spin.value() * 1000))
         self.buf = ""
         self.proc = QProcess(self)
         hide_console(self.proc)
@@ -916,7 +939,9 @@ class ExportDialog(QDialog):
         self.proc.finished.connect(self.on_done)
         self.go.setEnabled(False)
         self.path_edit.setEnabled(False)
+        self.lead_spin.setEnabled(False)
         self.tail_spin.setEnabled(False)
+        self.reset_pad.setEnabled(False)
         self.bar.setValue(0); self.bar.show()
         self.status.setText("Exporting… high quality takes a while (a few minutes for a typical 25-30 s clip, longer at 90 fps).")
         self.proc.start()
@@ -957,7 +982,9 @@ class ExportDialog(QDialog):
             self.status.setText(f"Export failed: {err[-300:] or 'ffmpeg exited with code ' + str(code)}")
         self.go.setEnabled(True)
         self.path_edit.setEnabled(True)
+        self.lead_spin.setEnabled(True)
         self.tail_spin.setEnabled(True)
+        self.reset_pad.setEnabled(True)
         self.bar.hide()
 
     def kill_job(self):
