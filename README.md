@@ -1,7 +1,5 @@
 # FPV DVR Lap Timer
 
-Version 1.10.10 (shown in the window title and **Help → About**).
-
 **Download (Windows):** [FPVDVRLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer-Setup.exe)
 (installer) · [FPVDVRLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer.exe)
 (portable) · [all releases](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases). Linux: see [Install](#install).
@@ -11,6 +9,9 @@ Version 1.10.10 (shown in the window title and **Help → About**).
 **Why I made it:** I was looking for an easy way to review my DVR files to find my laps for competing in
 RaceGOW. The app never modifies the DVR video files, and it can export a video of my fastest laps that I can
 submit as my RaceGOW entry.
+
+**Quick start:** install, add a video, press **Z** on each pass through the start/finish gate, then export your
+fastest laps. See *Workflow* for the steps.
 
 ## What it is
 
@@ -33,8 +34,6 @@ placed on a frame you can see, the times are accurate to the frame and easy to d
   optional start and end pictures (your pilot handle, say), your own audio or none, and padding either side.
 - **Export your data.** Lap times to CSV, and the whole library to a single file you can back up, move to another
   computer or merge into another library.
-- **Everything in one place.** Everything the app stores is in one small database and a cache folder (see *Where your data
-  lives*).
 
 It runs on Windows (installer or portable exe) and Linux, and reads `.ts`, `.mp4`, `.mov`, `.mkv`, `.m4v` and
 `.avi` files. Found a bug or have an idea? [Open an issue](https://github.com/lenuxfpv/fpv-dvr-lap-timer/issues).
@@ -95,7 +94,7 @@ winget (tick *Don't ask again* to stop the prompt, and use **Help → Install ff
 freshly installed ffmpeg without a restart. You can also install it yourself (`winget install Gyan.FFmpeg`) or put
 `ffmpeg.exe` and `ffprobe.exe` in a `bin` folder next to the app.
 
-**Running from source with `install.bat`.** Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop
+**From source with `install.bat`.** Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop
 shortcut too). It creates a private `.venv`, installs PyQt6, and adds a Start Menu shortcut and an "FPV DVR Lap Timer"
 entry in Settings > Apps that runs the uninstall. It needs Python 3.9+; if Python or ffmpeg is missing it offers to
 install them with winget (or run `winget install Python.Python.3.12` yourself), and it warns if your ffmpeg lacks
@@ -143,7 +142,7 @@ different path, a symlink, or a copy with the same name, size and date) is refus
 listing what was skipped, because the same laps would otherwise be counted twice in your stats. If
 duplicates are already in the library they show as **⚠ duplicate** (orange) in the list, and the
 Library stats window shows a warning for the track/view that contains them. Remove the extra entry
-with *Remove*; the video file and the shared smooth copy are not touched.
+with *Remove*; the video file is not touched.
 
 If a video is moved or renamed it shows in red; double-click it and pick the new location. Your
 marks stay attached.
@@ -188,19 +187,28 @@ LAPS      FASTEST     FASTEST 3
   Bad laps are excluded, as everywhere else.
 - The **file name** is on a small line at the bottom (shortened in the middle if long), with the session
   date at its right.
-- Badges at the top right: **🔒** auto-build is off for this video, **⚡** smooth-scrub copy ready, **⚠ duplicate** (orange) same file listed twice,
-  **⚠ not found** (red) the file is missing - double-click it to locate it.
+- Badges at the top right: **🔒** auto-build is off for this video, **⚡** smooth-scrub copy ready, **⚠ duplicate**
+  (orange) same file listed twice, **⚠ not found** (red) the file is missing - double-click it to locate it.
 - Hover a card for its full path.
+- The **Remove** button takes the selected video out of the library, with its marks. The video file is not touched.
+
+**Right-click menu.** Right-click a video (or a selection; right-clicking an unselected video acts on just that one):
+
+- **Assign to track** lists your existing tracks (ticked if the selected videos are already on it) plus **New track…**.
+- **Remove from track** clears the track.
+- **Track & session date…** opens the full dialog (see *Tracks and session dates*).
+- **Delete smooth copy and lock** and **🔒 Don't auto-build smooth copy** manage the video's smooth copy (see
+  *Deleting or locking a smooth copy*).
 
 ## Workflow
 
 1. **Add videos** with *Add videos…*, *Add folder…* (scans subfolders), or drag and drop. A list of the files found
    is shown first: untick the ones you don't want (or use *Select none* / *Select all*) and pick a **track** for each
    file in the *Track* column. To set many at once, pick a track in the *Track* box under the list and press *Set track
-   for ticked files*; *＋ New track…* creates one that doesn't exist yet. The track starts as the one you are viewing.
-   Then click *Add N videos*. Files already in the library are greyed out and not added again. Dropping loose files
-   adds them straight away, to the track being viewed.
-2. Select videos and click **Track / date…** to set a track name and session date (see below).
+   for ticked files*; *＋ New track…* creates one that doesn't exist yet. Then click *Add N videos*. Files already in
+   the library are greyed out and not added again. Dropping loose files adds them straight away, to the track being
+   viewed.
+2. Select videos and click **Track / date…** to set a track name and session date (see *Tracks and session dates*).
 3. Double-click a video to open it.
 4. Play or scrub to the moment you pass through the gate and press **Z** (or the green button; the key can be
    changed, see *Changing the keys*). The first mark starts lap 1; every later mark ends a lap and starts the next.
@@ -208,15 +216,12 @@ LAPS      FASTEST     FASTEST 3
 
 ### Navigating the video
 
-**Smooth-scrub copy.** FPV recordings (especially `.ts`) have a keyframe only every second or two, and
-a player can only show those frames when you jump around, so scrubbing looks stuck and
-single-frame stepping doesn't work. The app fixes this by building a small 480p copy of each video in
-which every frame is a keyframe (ffmpeg; builds at roughly 5x real time). Each copy takes about
-17-19% of the original's size, i.e. 0.5 MB per second of 60 fps footage and 0.8 MB per second at 90 fps
-(a 2.5 minute video is ~100-130 MB). Any ffmpeg version works; 5.1+ is preferred and older ones are
-handled automatically.
-It is built in the background, after which the app switches to it automatically and keeps your
-position. When copies get built:
+**Smooth-scrub copy.** FPV recordings (especially `.ts`) have a keyframe only every second or two, and a player can
+only show those frames when you jump around, so scrubbing looks stuck and single-frame stepping doesn't work. The app
+fixes this by building a small 480p copy of each video in which every frame is a keyframe (ffmpeg; builds at roughly
+5x real time). Each copy is about 15-20% of the original's size (a 2.5 minute video is ~100-130 MB). It is built in
+the background, after which the app switches to it automatically and keeps your position. Opening a video while its
+copy is still building works fine. When copies get built:
 
 - **When you add videos** (checkbox *Build when adding videos* in the library panel, on by default):
   every new video is queued and built one after another, so a whole folder is ready by the time you
@@ -226,28 +231,29 @@ position. When copies get built:
   and a line under it shows the current video, its percentage and how many are waiting.
 - **When you open a video** (*Auto-build* under the player): a video you open that has no copy jumps to
   the front of the queue.
-- A **⚡** badge on a video's card in the library list means its smooth copy is ready. Opening a video
-  while its copy is still building works fine; it switches over when it finishes.
 
-Once a copy is in use, scrubbing, stepping and reverse are fluid and frame-exact. Marks are saved as
-times, so they are identical whichever version you used. More about the copies:
+Once a copy is in use, scrubbing, stepping and reverse are fluid and frame-exact. Marks are saved as times, so they
+are identical whichever version you used, and always use the time of the frame **actually on screen**. More about the
+copies:
 
-- The copies live in a cache folder (see *Where your data lives*). **Clear smooth copies…** deletes them to free
+- The copies live in a cache folder (see *Where your data lives*). **Clear smooth copies…** deletes them all to free
   space; they can be rebuilt. *Remove* also deletes that video's copy, unless another entry for the same file still
   uses it.
-- A copy is found again by the video's **file name, size and modified date**, not its folder, so
-  moving or reorganising your videos (or using *Fix paths…*) does not trigger a rebuild. It is rebuilt
-  only if the file itself changes or you clear the cache. Two different videos with the same name,
-  size and date would share a copy, which in practice does not happen.
-- Untick *Use smooth copy* to go back to the original at any time.
-- **Right-click** a video in the library to **Delete smooth copy and lock** (just that video's copy, once you have finished
-  marking it; it also ticks the lock so the copy isn't rebuilt) or to tick **🔒 Don't auto-build smooth copy** on
-  its own. A locked video is skipped by *Build when adding*,
-  *Auto-build* and *Build smooth copies (N)*, and shows a 🔒 on its card. The *Build smooth-scrub copy* button under
-  the player still builds it when you ask directly. Both work on a multi-selection, and the lock is saved in the
-  library.
-- Without ffmpeg (or before the copy is ready) the original is used and the picture can only move
-  between keyframes. Marks always use the time of the frame **actually on screen**.
+- A copy is found again by the video's **file name, size and modified date**, not its folder, so moving or
+  reorganising your videos (or using *Fix paths…*) does not trigger a rebuild. It is rebuilt only if the file itself
+  changes or you clear the cache.
+- Untick *Use smooth copy* to go back to the original at any time. Without a copy the original is used and the
+  picture can only move between keyframes.
+
+**Deleting or locking a smooth copy.** Once you have finished marking a video you can free its space, and stop the
+app making the copy again:
+
+- **Delete smooth copy and lock** (right-click menu) deletes just that video's copy and also ticks the lock, so
+  Auto-build doesn't rebuild it.
+- **🔒 Don't auto-build smooth copy** (right-click menu, a tick box) can be used on its own. A locked video is skipped
+  by *Build when adding*, *Auto-build* and *Build smooth copies (N)*, and shows a 🔒 on its card.
+- The *Build smooth-scrub copy* button under the player still builds a locked video when you ask directly.
+- Both work on a multi-selection, and the lock is saved in the library.
 
 **Slow to fast.** The *Controls* table below lists every key (all can be changed). The main ideas:
 
@@ -277,7 +283,7 @@ These are the defaults; every one can be changed (see *Changing the keys* below)
 
 Audio is muted by default (checkbox under the video).
 
-### Changing the keys
+### Changing the keys, and the theme
 
 Every key in the table above can be changed: choose **View → Keyboard shortcuts…**, click the box next to an
 action and press the key you want (a single key, optionally with Ctrl / Shift / Alt, e.g. `Ctrl+G`). *Default*
@@ -287,10 +293,8 @@ blocked: the clashing rows turn orange and *Save* stays disabled until you fix i
 remembered, and the **MARK START/FINISH GATE** button label shows your key for that action. (The line under the
 video just points back to this dialog.)
 
-### Dark mode
-
-**View → Theme** offers *Follow system*, *Light* and *Dark*. The choice is remembered. Charts and
-dialogs follow the theme too.
+**Theme.** **View → Theme** offers *Follow system*, *Light* and *Dark*. The choice is remembered, and charts and
+dialogs follow it.
 
 ### Marks and laps table
 
@@ -310,18 +314,13 @@ dialogs follow the theme too.
 - **Session date** controls ordering in the library list and charts. Choose *Use file date* (the
   file's modified date), *Set date* (manual), or *Keep as is*. Set it manually for copied or
   re-saved files whose file date is wrong.
-- **Right-click** a video in the library for the quickest way: **Assign to track** lists your existing
-  tracks (ticked if the selected videos are already on it) plus **New track…**; **Remove from track**
-  clears it; **Track & session date…** opens the full dialog. It works on a multi-selection, and
-  right-clicking an unselected video acts on just that one.
-- Select several videos (Shift/Ctrl-click) to tag them all at once. Fields that differ between the
-  selected videos are left alone unless you change them.
-- The dropdown above the library list filters it by track. Videos you add while a track is selected
-  join that track.
+- Select several videos (Shift/Ctrl-click) to tag them all at once, or use the right-click menu. Fields that differ
+  between the selected videos are left alone unless you change them.
+- The dropdown above the library list filters it by track. Videos you add while a track is selected join that
+  track (the *Add videos* list starts with it chosen).
 - **New empty track:** choose **＋ New track…** at the bottom of that dropdown, type a name, and the app
-  switches to the new (empty) track. Videos you add next (*Add videos…*, *Add folder…* or drag and drop)
-  join it. The empty track is remembered in the library (it is included in exports, imports and merges) and
-  also shows up under *Assign to track*. Typing a name that already exists just switches to that track.
+  switches to the new (empty) track, so the videos you add next join it. The empty track is remembered in the library
+  (it is included in exports, imports and merges) and also shows up under *Assign to track*. Typing a name that already exists just switches to that track.
 - **Rename or delete a track:** with a track selected, the same dropdown also offers **✎ Rename this
   track…** and **🗑 Delete this track…**. Renaming changes the name on all its videos (typing the name of
   another existing track offers to merge the two). Deleting asks first; the videos stay in the library with
@@ -363,17 +362,17 @@ with a lap timer drawn on it.
   are in. The *Save as* box starts in the same folder as the source video (or your Videos folder if that
   folder can't be found); change the name or folder if you like, then click *Export*. A progress bar shows how far
   it is, and *Cancel* removes the partial file. When it finishes, an *Open the folder* link opens the folder.
-- **What you get:** an MP4 (H.264) of the **original footage**, not the smooth copy, at its original
-  resolution and frame rate (a 90 fps video stays 90 fps), cut on the exact frames you marked, with
-  1 s before the first gate and 2 s after the last one by default (change them with "Start padding" and
-  "End padding" in the export dialog, 0–10 s each; **Reset padding** puts both back to the defaults; your
-  choice is remembered; the start can't go earlier than the start of the video). It is re-encoded at high quality
+- **What you get:** an MP4 (H.264) of the **original footage**, not the smooth copy, at its original resolution and
+  frame rate (a 90 fps video stays 90 fps), cut on the exact frames you marked. It is re-encoded at high quality
   (x264 CRF 16, slow preset) with BT.709 colours so it plays correctly on YouTube, Discord and phones.
-  Audio is kept if the source has any, unless you tick **Remove audio** in the export dialog (remembered) or
-  choose **Replace audio with:** an audio file of your own (mp3, wav, m4a, flac, ogg…; or any file that has an audio
-  track). The replacement starts with the clip, is padded with silence if it is shorter and fades out over the last
-  second if it is longer. The two options are alternatives: choosing a file switches *Remove audio* off. The
-  audio file you used last is remembered (if it is still there) and filled in next time; *Clear* forgets it.
+- **Padding:** 1 s before the first gate and 2 s after the last one by default. Change them with "Start padding" and
+  "End padding" in the export dialog (0–10 s each; the start can't go earlier than the start of the video).
+  **Reset padding** puts both back to the defaults, and your choice is remembered.
+- **Audio** is kept if the source has any, unless you tick **Remove audio** (remembered) or choose **Replace audio
+  with:** an audio file of your own (mp3, wav, m4a, flac, ogg…; or any file that has an audio track). The replacement
+  starts with the clip, is padded with silence if it is shorter and fades out over the last second if it is longer.
+  The two options are alternatives: choosing a file switches *Remove audio* off. The audio file you used last is
+  remembered (if it is still there); *Clear* forgets it.
 - **Start and end pictures (stickers):** choose a **Start picture:** and/or an **End picture:** (they can be
   different files; a PNG with transparency works best, JPG, WebP, BMP and GIF also work), for example your
   pilot-handle sticker. Each is placed in the centre of the video. The start picture is shown from the first
@@ -386,22 +385,26 @@ with a lap timer drawn on it.
   with each finished lap's time listed underneath; top right, the track name and date and the running
   total of the N laps; after the last gate the final lap and total are held on screen and a gold
   *FASTEST N CONSECUTIVE LAPS m:ss.mmm* banner appears. Times show as `ss.mmm` until they reach a minute, then
-  `m:ss.mmm`.
+  `m:ss.mmm`. An example frame:
+
+  ![A frame from an exported video: the lap timer and finished laps top left, the track, date and total top right, and the gold fastest-laps banner along the bottom](docs/export-example.jpg)
 - **Requirements:** the export needs ffmpeg with libx264 and the `drawtext` filter (built with freetype; every normal
   full build has it), and a bold font file (see *What it needs*). The app checks all of this before exporting and
   tells you in plain words what to fix. The source video must be reachable (a network share that is offline shows
   an error).
-- **Speed:** exporting is slow because it is a high-quality re-encode: about 30 s for a 28 s 60 fps clip on a fast
-  machine, and a few minutes for a 90 fps clip read from a network share, so leave it running.
-- **YouTube** plays up to 60 fps, so a 90 fps export is shown at 60 there; the file itself is left untouched.
+- **Speed and sharing:** exporting is slow because it is a high-quality re-encode: about 30 s for a 28 s 60 fps clip
+  on a fast machine, and a few minutes for a 90 fps clip read from a network share, so leave it running. YouTube
+  plays up to 60 fps, so a 90 fps export is shown at 60 there; the file itself is left untouched.
 
-## Notes
+## Troubleshooting
 
-- If something unexpected goes wrong the app shows a message in the status bar and keeps running
-  instead of closing; the details are written to `errors.log` next to the library database.
-- *Remove* only deletes the video from the library (and its marks); the video file is untouched.
-- Playback of `.ts` files uses Qt's ffmpeg backend. If a file won't play, check the status bar for
-  the player error.
+- **A file won't play.** Playback of `.ts` files uses Qt's ffmpeg backend. Check the status bar for the player error.
+- **"ffmpeg needed" or smooth copies won't build.** See *What it needs*. The usual cause is an ffmpeg without libx264;
+  the app says so in plain words and tells you the fix for your system.
+- **Windows shows a blue SmartScreen warning.** See *"Windows protected your PC"* under *Windows*.
+- **Something unexpected goes wrong.** The app shows a message in the status bar and keeps running instead of
+  closing; the details are written to `errors.log` next to the library database. Please include it if you
+  [open an issue](https://github.com/lenuxfpv/fpv-dvr-lap-timer/issues).
 
 ## License
 
