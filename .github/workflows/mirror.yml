@@ -54,3 +54,24 @@ jobs:
             body=$(GH_TOKEN="$SRC_TOKEN" gh release view "$tag" -R "$SRC" --json body --jq '.body')
             GH_TOKEN="$DEST_TOKEN" gh release create "$tag" rel/"$tag"/* -R "$DEST" --verify-tag --title "${title:-$tag}" --notes "$body"
           done
+
+      # Keep the public Releases page to the newest release only. This deletes the older releases, not their
+      # git tags. It runs after the copy step, so the newest release is on the public repo before anything is deleted.
+      - name: Prune old releases on the public repo
+        env:
+          DEST_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          DEST="lenuxfpv/fpv-dvr-lap-timer"
+          tags=$(GH_TOKEN="$DEST_TOKEN" gh release list -R "$DEST" --limit 200 --json tagName --jq '.[].tagName' | sort -V)
+          newest=$(printf '%s\n' "$tags" | tail -1)
+          if [ -z "$newest" ]; then
+            echo "No releases on $DEST, nothing to prune"
+            exit 0
+          fi
+          echo "Keeping $newest"
+          for tag in $tags; do
+            if [ "$tag" != "$newest" ]; then
+              echo "Deleting release $tag (the tag stays)"
+              GH_TOKEN="$DEST_TOKEN" gh release delete "$tag" -R "$DEST" --yes
+            fi
+          done
