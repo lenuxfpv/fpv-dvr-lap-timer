@@ -10,11 +10,17 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
-      - name: Mirror all branches and tags
+      - name: Install git-filter-repo
+        run: pip install git-filter-repo
+
+      - name: Mirror with author info replaced
         env:
           SRC_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEST_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         run: |
           git clone --bare "https://x-access-token:${SRC_TOKEN}@github.com/${{ github.repository }}.git" repo
           cd repo
+          git filter-repo --force \
+            --name-callback 'return b"LenuxFPV"' \
+            --email-callback 'return b"342138357+lenuxfpv@users.noreply.github.com"'
           git push --mirror "https://x-access-token:${DEST_TOKEN}@github.com/lenuxfpv/fpv-dvr-lap-timer.git"
