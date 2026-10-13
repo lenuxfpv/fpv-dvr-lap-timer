@@ -29,8 +29,8 @@ VSVersionInfo(
         [StringStruct('CompanyName', ''),
          StringStruct('FileDescription', 'FPV DVR Lap Timer'),
          StringStruct('FileVersion', '{dotted}'),
-         StringStruct('InternalName', 'FPVLapTimer'),
-         StringStruct('OriginalFilename', 'FPVLapTimer.exe'),
+         StringStruct('InternalName', 'FPVDVRLapTimer'),
+         StringStruct('OriginalFilename', 'FPVDVRLapTimer.exe'),
          StringStruct('ProductName', 'FPV DVR Lap Timer'),
          StringStruct('ProductVersion', '{version}')])
     ]),

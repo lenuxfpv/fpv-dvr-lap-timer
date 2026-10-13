@@ -13,9 +13,13 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 APPS="$DATA/applications"
 ICONS="$DATA/icons/hicolor/scalable/apps"
-DESKTOP_FILE="$APPS/fpv-lap-timer.desktop"
-ICON_FILE="$ICONS/fpv-lap-timer.svg"
-CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fpv-lap-timer"
+DESKTOP_FILE="$APPS/fpv-dvr-lap-timer.desktop"
+ICON_FILE="$ICONS/fpv-dvr-lap-timer.svg"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fpv-dvr-lap-timer"
+# files and folders left by versions before 1.10 (the app used to be called fpv-lap-timer)
+OLD_DESKTOP_FILE="$APPS/fpv-lap-timer.desktop"
+OLD_ICON_FILE="$ICONS/fpv-lap-timer.svg"
+OLD_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fpv-lap-timer"
 
 say()  { printf '\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33mWarning:\033[0m %s\n' "$*" >&2; }
@@ -28,11 +32,15 @@ desktop_dir() {
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-    rm -f "$DESKTOP_FILE" "$ICON_FILE" "$(desktop_dir)/fpv-lap-timer.desktop"
+    rm -f "$DESKTOP_FILE" "$ICON_FILE" "$OLD_DESKTOP_FILE" "$OLD_ICON_FILE" \
+          "$(desktop_dir)/fpv-dvr-lap-timer.desktop" "$(desktop_dir)/fpv-lap-timer.desktop"
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" || true
-    say "Launcher removed. Your library ($DATA/fpv-lap-timer) and videos were not touched."
-    if [[ -d "$CACHE" ]]; then
-        size="$(du -sh "$CACHE" 2>/dev/null | cut -f1)"
+    say "Launcher removed. Your library ($DATA/fpv-dvr-lap-timer) and videos were not touched."
+    caches=()
+    [[ -d "$CACHE" ]] && caches+=("$CACHE")
+    [[ -d "$OLD_CACHE" ]] && caches+=("$OLD_CACHE")
+    if (( ${#caches[@]} )); then
+        size="$(du -shc "${caches[@]}" 2>/dev/null | tail -1 | cut -f1)"
         clear=no
         if [[ "${2:-}" == "--clear-cache" ]]; then
             clear=yes
@@ -41,7 +49,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
             [[ "$ans" =~ ^[Yy] ]] && clear=yes
         fi
         if [[ "$clear" == yes ]]; then
-            rm -rf "$CACHE"
+            rm -rf "${caches[@]}"
             say "Smooth-scrub copies deleted."
         else
             echo "Smooth-scrub copies kept in $CACHE (${size:-unknown size}) - delete that folder to free the space."
@@ -111,7 +119,8 @@ esc() {
 }
 
 mkdir -p "$APPS" "$ICONS"
-cp "$DIR/fpv-lap-timer.svg" "$ICON_FILE"
+rm -f "$OLD_DESKTOP_FILE" "$OLD_ICON_FILE" "$(desktop_dir)/fpv-lap-timer.desktop"   # launcher from an older version
+cp "$DIR/fpv-dvr-lap-timer.svg" "$ICON_FILE"
 cat > "$DESKTOP_FILE" <<DESKTOP
 [Desktop Entry]
 Type=Application
@@ -119,7 +128,7 @@ Name=FPV DVR Lap Timer
 Comment=Mark gate passes in FPV footage and track lap times
 Exec="$(esc "$PYBIN")" "$(esc "$DIR/lap_timer.py")" %F
 Path=$DIR
-Icon=fpv-lap-timer
+Icon=fpv-dvr-lap-timer
 Terminal=false
 Categories=AudioVideo;Video;
 StartupWMClass=lap_timer.py
@@ -127,9 +136,9 @@ DESKTOP
 chmod +x "$DESKTOP_FILE"
 
 if [[ "${1:-}" == "--desktop" ]]; then
-    cp "$DESKTOP_FILE" "$(desktop_dir)/fpv-lap-timer.desktop"
-    chmod +x "$(desktop_dir)/fpv-lap-timer.desktop"
-    command -v gio >/dev/null 2>&1 && gio set "$(desktop_dir)/fpv-lap-timer.desktop" metadata::trusted true 2>/dev/null || true
+    cp "$DESKTOP_FILE" "$(desktop_dir)/fpv-dvr-lap-timer.desktop"
+    chmod +x "$(desktop_dir)/fpv-dvr-lap-timer.desktop"
+    command -v gio >/dev/null 2>&1 && gio set "$(desktop_dir)/fpv-dvr-lap-timer.desktop" metadata::trusted true 2>/dev/null || true
     say "Desktop shortcut added (you may need to right-click it and choose 'Allow Launching')."
 fi
 

@@ -19,17 +19,18 @@ $UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FPVLa
 if ($Uninstall) {
     Remove-Item -Force -ErrorAction SilentlyContinue $StartMenu, $DesktopLnk, $OldLinks
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $UninstallKey
-    Write-Host "Shortcuts removed. Your library ($env:APPDATA\fpv-lap-timer) and videos were not touched."
-    $Cache = Join-Path $env:LOCALAPPDATA "fpv-lap-timer"
-    if (Test-Path $Cache) {
-        $mb = [math]::Round((Get-ChildItem $Cache -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+    Write-Host "Shortcuts removed. Your library ($env:APPDATA\fpv-dvr-lap-timer) and videos were not touched."
+    $Cache = Join-Path $env:LOCALAPPDATA "fpv-dvr-lap-timer"
+    $OldCache = Join-Path $env:LOCALAPPDATA "fpv-lap-timer"          # left by versions before 1.10
+    if ((Test-Path $Cache) -or (Test-Path $OldCache)) {
+        $mb = [math]::Round((@($Cache, $OldCache) | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -Recurse -File -ErrorAction SilentlyContinue } | Measure-Object Length -Sum).Sum / 1MB)
         $clear = $ClearCache.IsPresent
         if (-not $clear) {
             $answer = Read-Host "Also delete the smooth-scrub copies in $Cache ($mb MB) to free disk space? They can be rebuilt. [y/N]"
             $clear = ($answer -match '^\s*y')
         }
         if ($clear) {
-            Remove-Item -Recurse -Force $Cache
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Cache, $OldCache
             Write-Host "Smooth-scrub copies deleted."
         } else {
             Write-Host "Smooth-scrub copies kept in $Cache ($mb MB) - delete that folder to free the space."
@@ -149,7 +150,7 @@ function New-Shortcut($path) {
     $lnk.TargetPath = $VenvPyw                       # pythonw = no console window
     $lnk.Arguments = '"' + (Join-Path $Dir "lap_timer.py") + '"'
     $lnk.WorkingDirectory = $Dir
-    $lnk.IconLocation = (Join-Path $Dir "fpv-lap-timer.ico")
+    $lnk.IconLocation = (Join-Path $Dir "fpv-dvr-lap-timer.ico")
     $lnk.Description = "Mark gate passes in FPV footage and track lap times"
     $lnk.Save()
 }
@@ -168,7 +169,7 @@ try {
         DisplayVersion  = $version
         Publisher       = "LenuxFPV"
         InstallLocation = $Dir
-        DisplayIcon     = (Join-Path $Dir "fpv-lap-timer.ico")
+        DisplayIcon     = (Join-Path $Dir "fpv-dvr-lap-timer.ico")
         UninstallString = 'cmd.exe /c ""' + (Join-Path $Dir "install.bat") + '" -Uninstall"'
     }
     foreach ($k in $props.Keys) { New-ItemProperty -Path $UninstallKey -Name $k -Value $props[$k] -PropertyType String -Force | Out-Null }
