@@ -34,6 +34,14 @@ you and prints the fix for your distro. Uninstalling leaves your library alone a
 
 ### Windows
 
+**Easiest:** download **`FPVLapTimer-Setup.exe`** from the
+[Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases) and run it. No Python needed and no
+admin rights: it installs to `%LOCALAPPDATA%\Programs\FPV Lap Timer`, adds a Start Menu shortcut (and a
+Desktop one if you tick it) and an "FPV Lap Timer" entry in Settings > Apps, where you can uninstall it. The
+uninstaller asks whether to also delete the smooth-scrub copies; your library and videos are never touched.
+The release also has the bare `FPVLapTimer.exe` if you prefer a portable copy (no Apps entry). If ffmpeg is
+missing the app offers to install it (see below). The rest of this section covers running from source.
+
 Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop shortcut too, and
 `install.bat -Uninstall` to remove them). It creates a private `.venv`, installs PyQt6, and adds a
 Start Menu shortcut and an "FPV Lap Timer" entry in Settings > Apps (Add/Remove Programs) that runs the uninstall. Needs Python 3.9+; if Python or ffmpeg is missing it offers to install them with winget (or run `winget install Python.Python.3.12` yourself). For frame rates install
@@ -47,9 +55,10 @@ with PyInstaller (no Python needed to run it; put `ffmpeg.exe` and `ffprobe.exe`
 bundle them). The build also stamps the app's version (`VERSION` in `lap_timer.py`) into the exe's
 Properties > Details tab.
 
-The same exe is built automatically by the **Build Windows exe** GitHub Actions workflow
+The exe and the installer (`installer.iss`, built with Inno Setup) are built automatically by the **Build Windows exe** GitHub Actions workflow
 (`.github/workflows/build-windows.yml`): run it from the repo's Actions tab, or push a tag like `vX.Y.Z` (matching `VERSION` in `lap_timer.py`)
-to also publish a release. It starts the exe as a smoke test and checks the stamped version. ffmpeg is not
+to also publish a release. It starts the exe as a smoke test, checks the stamped version, and test-installs and
+uninstalls the installer silently, checking the Apps entry appears and goes away. ffmpeg is not
 bundled in that build, so put it in a `bin` folder next to the exe or on PATH. If ffmpeg or ffprobe can't be
 found when the app starts, it offers to install ffmpeg with winget (Windows) or points you to the install
 command / download page; tick *Don't ask again* to stop the prompt, and use **Help → Install ffmpeg…** any
@@ -294,6 +303,11 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 
 Releases and their `FPVLapTimer.exe` downloads are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- New **`FPVLapTimer-Setup.exe`** installer on the Releases page: per-user install (no admin), Start Menu
+  and optional Desktop shortcuts, a Settings > Apps entry to uninstall, and an uninstall prompt to delete
+  the smooth-scrub cache. The bare `FPVLapTimer.exe` is still published.
 
 ### 1.1.5
 - The app checks for ffmpeg/ffprobe on start-up and offers to install ffmpeg with winget (Windows) or
