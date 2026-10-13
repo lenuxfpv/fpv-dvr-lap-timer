@@ -396,3 +396,8 @@ with a lap timer drawn on it.
 - *Remove* only deletes the video from the library (and its marks); the video file is untouched.
 - Playback of `.ts` files uses Qt's ffmpeg backend. If a file won't play, check the status bar for
   the player error.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The Windows exe and installer bundle [PyQt6](https://www.riverbankcomputing.com/software/pyqt/),
+which is licensed under the GPL v3.
