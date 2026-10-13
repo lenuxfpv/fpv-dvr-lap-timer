@@ -1,6 +1,6 @@
 # FPV DVR Lap Timer
 
-Version 1.10.4 (shown in the window title and **Help → About**).
+Version 1.10.5 (shown in the window title and **Help → About**).
 
 **Download (Windows):** [FPVDVRLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer-Setup.exe)
 (installer) · [FPVDVRLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer.exe)
@@ -228,7 +228,7 @@ These are the defaults; every one can be changed (see *Changing the keys* below)
 | Key | Action |
 |---|---|
 | Space | Play / pause (also stops a shuttle) |
-| Z | Mark gate pass on the frame shown |
+| Z | Mark start/finish gate pass on the frame shown |
 | ← / → | Step one frame back / forward (hold to repeat) |
 | Mouse wheel on video | Step frames (Shift = 10) |
 | Hold Shift + ← / → | Play backward / forward at 2x while held; stops on release |
@@ -247,9 +247,8 @@ action and press the key you want (a single key, optionally with Ctrl / Shift / 
 puts one action back, *Clear* leaves it without a key, and *Reset all to defaults* restores everything.
 Giving two actions the same key (or using Return, which always opens the selected video in the library) is
 blocked: the clashing rows turn orange and *Save* stays disabled until you fix it. The choices are
-remembered, and the **MARK START/FINISH GATE** button label shows your Mark gate key. (The line under the video just points
-back to this dialog.) A Mark gate key
-you set in an older version carries over.
+remembered, and the **MARK START/FINISH GATE** button label shows your key for that action. (The line under the
+video just points back to this dialog.) A key you set for it in an older version carries over.
 
 ### Dark mode
 
@@ -371,6 +370,10 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
 tags remain), so this list is the record of what changed in each version.
+
+### 1.10.5
+- The hint under the video, the Controls table and the export tooltip now match the start/finish gate wording
+  and the overlay's `0.000` start; removed an unused import; install.sh warnings no longer say "fastest-3".
 
 ### 1.10.4
 - The **MARK GATE** button is now **MARK START/FINISH GATE** (and the Keyboard shortcuts entry matches).

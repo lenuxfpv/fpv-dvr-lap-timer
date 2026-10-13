@@ -20,7 +20,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QUrl, QTimer
 from PyQt6.QtCore import QDate, QEvent, QKeyCombination, QProcess, QSize, QRectF, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPen, QShortcut
-from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame
+from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-VERSION = "1.10.4"
+VERSION = "1.10.5"
 AUTHOR = "LenuxFPV"
 APP_NAME = "FPV DVR Lap Timer"        # shown to users
 APP_ID = "fpv-dvr-lap-timer"           # folder / settings name
@@ -1105,7 +1105,7 @@ class ExportDialog(QDialog):
             spin.setToolTip(tip)
             return spin
         self.lead_spin = padding_spin("export_lead_s", EXPORT_LEAD_MS,
-                                      "Footage kept before the first gate, with the lap timer waiting at 0:00.000")
+                                      "Footage kept before the first gate, with the lap timer waiting at 0.000")
         self.tail_spin = padding_spin("export_tail_s", EXPORT_TAIL_MS,
                                       "Footage kept after the last lap, with the final total on screen")
         self.no_audio = QCheckBox("Remove audio")
@@ -3663,7 +3663,7 @@ class MainWindow(QMainWindow):
         n = self.video_run()
         s = lap_stats(laps, n)
         if not laps:
-            self.stats_label.setText("<i>Mark each pass through the start gate. "
+            self.stats_label.setText("<i>Mark each pass through the start/finish gate. "
                                      "The first mark starts lap 1.</i>")
             return
         best = f"{fmt(s['best'][0])} <small>(lap {s['best'][1] + 1})</small>" if s["best"] else "--"

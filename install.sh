@@ -99,13 +99,13 @@ fi
 encoders=""
 command -v ffmpeg >/dev/null 2>&1 && encoders="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"   # (not piped into grep -q: pipefail)
 if command -v ffmpeg >/dev/null 2>&1 && [[ "$encoders" != *libx264* ]]; then
-    warn "Your ffmpeg has no libx264 (H.264) encoder, so smooth-scrub copies and the fastest-3 video export will fail."
+    warn "Your ffmpeg has no libx264 (H.264) encoder, so smooth-scrub copies and the fastest-laps video export will fail."
     warn "Fedora: enable RPM Fusion and run: sudo dnf swap ffmpeg-free ffmpeg --allowerasing"
 fi
 
 # a bold font is needed for the timer drawn on exported videos
 if [[ -z "$("$PYBIN" -c 'import sys; sys.path.insert(0, sys.argv[1]); import lap_timer; print(lap_timer.find_overlay_font() or "")' "$DIR" 2>/dev/null)" ]]; then
-    warn "No bold font file was found, so the fastest-3 video export can't draw its timer."
+    warn "No bold font file was found, so the fastest-laps video export can't draw its timer."
     warn "Install one, e.g. DejaVu Sans (Fedora: sudo dnf install dejavu-sans-fonts, Debian/Ubuntu: sudo apt install fonts-dejavu-core)."
 fi
 
