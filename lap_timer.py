@@ -830,7 +830,9 @@ class ExportDialog(QDialog):
                          f"Fastest {n} consecutive: <b>{fmt(win['total_ms'])}</b>")
         summary.setTextFormat(Qt.TextFormat.RichText)
         default_dir = Path.home() / "Videos"
-        name = f"{track if win['track'] else Path(vname(win['path'])).stem} fastest {n} {fmt(win['total_ms'])}.mp4"
+        ms = int(round(win["total_ms"]))
+        total = f"{ms / 1000:.3f}" if ms < 60000 else fmt(ms)   # under a minute: "25.737", not "0:25.737"
+        name = f"{track if win['track'] else Path(vname(win['path'])).stem} fastest {n} {total}.mp4"
         name = re.sub(r'[\\/:*?"<>|]', "-", name)
         self.path_edit = QLineEdit(str((default_dir if default_dir.is_dir() else Path.home()) / name))
         browse = QPushButton("Browse…")

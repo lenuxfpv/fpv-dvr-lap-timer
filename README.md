@@ -350,6 +350,8 @@ Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are
 ### Unreleased
 - **Fastest run of N laps:** choose how many consecutive laps (2-10, default 3) the "fastest N" figures and
   the video export use, instead of always 3. One global setting in the right panel.
+- The suggested export file name leaves out the minutes when the total is under a minute
+  (`... fastest 3 25.737.mp4`, not `... fastest 3 0-25.737.mp4`).
 
 ### 1.3.0
 - **＋ New track…** in the library's track dropdown creates an empty track you can add videos to, and
