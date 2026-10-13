@@ -48,7 +48,7 @@ bundle them). The build also stamps the app's version (`VERSION` in `lap_timer.p
 Properties > Details tab.
 
 The same exe is built automatically by the **Build Windows exe** GitHub Actions workflow
-(`.github/workflows/build-windows.yml`): run it from the repo's Actions tab, or push a tag like `v1.1.4`
+(`.github/workflows/build-windows.yml`): run it from the repo's Actions tab, or push a tag like `vX.Y.Z` (matching `VERSION` in `lap_timer.py`)
 to also publish a release. It starts the exe as a smoke test and checks the stamped version. ffmpeg is not
 bundled in that build, so put it in a `bin` folder next to the exe or on PATH. If ffmpeg or ffprobe can't be
 found when the app starts, it offers to install ffmpeg with winget (Windows) or points you to the install
