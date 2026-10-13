@@ -126,7 +126,8 @@ You can also drag video files or folders onto the window.
 Everything is stored in one SQLite database - Linux `~/.local/share/fpv-lap-timer/library.db`,
 Windows `%APPDATA%\fpv-lap-timer\library.db`, macOS `~/Library/Application Support/fpv-lap-timer/`.
 Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds each video's path,
-gate marks, bad-lap flags, track name and session date. **Nothing is written next to your videos**,
+gate marks, bad-lap flags, track name and session date. **Nothing is written next to your videos**
+(apart from an exported video, which you choose to save; see *Export*),
 and the app never modifies or deletes video files. Back up that one file to keep your history.
 Preferences (theme, keyboard shortcuts, the *Auto-build* / *Build when adding* checkboxes) are stored
 separately by Qt (Linux `~/.config/fpv-lap-timer/app.conf`, Windows registry) and are not part of the
@@ -346,7 +347,8 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 - **From the open video:** **🎬 Export fastest N video…** in the right panel exports that video's fastest
   N consecutive laps. **From a track:** **Library stats → 🎬 Export fastest N video (this track)…** exports
   the single fastest run of N laps across all videos on the selected track (or *All tracks*), whichever video they
-  are in. Choose the file name and click *Export*; a progress bar shows how far it is and *Cancel*
+  are in. The *Save as* box starts in the same folder as the source video (or your Videos folder if that
+  folder can't be found); change the name or folder if you like, then click *Export*; a progress bar shows how far it is and *Cancel*
   removes the partial file.
 - **What you get:** an MP4 (H.264) of the **original footage**, not the smooth copy, at its original
   resolution and frame rate (a 90 fps video stays 90 fps), cut on the exact frames you marked, with
@@ -380,6 +382,9 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- Export video: the *Save as* box now starts in the same folder as the source video.
 
 ### 1.6.0
 - Export video: new **Remove audio** checkbox to export without a sound track.

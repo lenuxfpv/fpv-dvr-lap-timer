@@ -873,7 +873,8 @@ class ExportDialog(QDialog):
         summary = QLabel(f"<b>{track}</b> &nbsp;·&nbsp; {vname(win['path'])}<br><br>{laps}<br><br>"
                          f"Fastest {n} consecutive: <b>{fmt(win['total_ms'])}</b>")
         summary.setTextFormat(Qt.TextFormat.RichText)
-        default_dir = Path.home() / "Videos"
+        source_dir = Path(win["path"]).parent                 # save next to the video it was cut from
+        default_dir = source_dir if source_dir.is_dir() else Path.home() / "Videos"
         ms = int(round(win["total_ms"]))
         total = f"{ms / 1000:.3f}" if ms < 60000 else fmt(ms)   # under a minute: "25.737", not "0:25.737"
         name = f"{track if win['track'] else Path(vname(win['path'])).stem} fastest {n} {total}.mp4"
