@@ -1,6 +1,6 @@
 """Write version_info.txt for PyInstaller (--version-file) from VERSION in lap_timer.py.
 
-This is what shows in the Windows exe's Properties > Details tab. Run by build_windows.bat."""
+This is what shows in the Windows exe's Properties > Details tab. Run by build_windows.bat and by the GitHub Actions build."""
 import re
 from pathlib import Path
 

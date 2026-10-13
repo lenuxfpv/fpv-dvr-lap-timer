@@ -3,10 +3,10 @@ name: Build Windows exe
 on:
   workflow_dispatch:          # run by hand from the Actions tab
   push:
-    tags: ["v*"]              # e.g. v1.1.0 also publishes a GitHub release
+    tags: ["v*"]              # e.g. vX.Y.Z (must match VERSION) also publishes a release
 
 permissions:
-  contents: write             # needed to attach the exe to a release
+  contents: write             # needed to attach the exe and installer to a release
 
 jobs:
   build:

@@ -20,7 +20,9 @@ Older releases are listed in the [Changelog](#changelog).
 
 ## Install
 
-You need Python 3.9+, **PyQt6** and (strongly recommended) **ffmpeg**, which provides two programs:
+On Windows the easiest route is the `FPVLapTimer-Setup.exe` installer (see *Windows* below), which needs
+nothing else installed. To run from source (Linux, or Windows without the installer) you need Python 3.9+,
+**PyQt6** and (strongly recommended) **ffmpeg**, which provides two programs:
 `ffprobe` reads each video's frame rate (without it 30 fps is assumed and frame-stepping is off on other
 frame rates) and `ffmpeg` builds the smooth-scrub copies (without it scrubbing only jumps between
 keyframes, see *Navigating the video*). The app works without ffmpeg, just less smoothly. Your ffmpeg
@@ -62,7 +64,7 @@ to the app. Uninstalling removes the shortcuts and leaves your library alone; it
 cached smooth copies (`%LOCALAPPDATA%\fpv-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`
 deletes them without asking). The installer also warns if your ffmpeg lacks libx264.
 
-Prefer a single `.exe`? Run **`build_windows.bat`** on Windows to produce `dist\FPVLapTimer.exe`
+To build the single `.exe` yourself, run **`build_windows.bat`** on Windows to produce `dist\FPVLapTimer.exe`
 with PyInstaller (no Python needed to run it; put `ffmpeg.exe` and `ffprobe.exe` in `bin` first to
 bundle them). The build also stamps the app's version (`VERSION` in `lap_timer.py`) into the exe's
 Properties > Details tab.
@@ -198,7 +200,7 @@ times, so they are identical whichever version you used. More about the copies:
 - Without ffmpeg (or before the copy is ready) the original is used and the picture can only move
   between keyframes. Marks always use the time of the frame **actually on screen**.
 
-**Slow to fast:**
+**Slow to fast:** (the keys named here are the defaults; every one can be changed, see *Changing the keys*)
 
 - **Shuttle slider** (under the seek bar): drag right to play forward from 0.1x up to 16x, drag left
   to go backward; the further you drag, the faster. Let go and it springs back and stops. This is the
@@ -320,7 +322,7 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 
 ## Changelog
 
-Releases and their `FPVLapTimer.exe` downloads are on the
+Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
 
 ### 1.2.0
