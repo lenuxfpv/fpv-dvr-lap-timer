@@ -2318,6 +2318,15 @@ class MainWindow(QMainWindow):
         self.last_filter = None
         self.pending_filter = NO_PENDING     # track to show after the next rebuild of the dropdown
         self.track_filter.currentIndexChanged.connect(self.on_track_filter_changed)
+        self.sort_box = QComboBox()
+        self.sort_box.setToolTip("Order of the videos in the list. Videos with no lap times yet go last.")
+        for label, key in (("Sort: date (oldest first)", "date"), ("Sort: date (newest first)", "newest"),
+                           ("Sort: fastest lap", "lap"),
+                           ("Sort: fastest run", "run")):
+            self.sort_box.addItem(label, key)
+        i = self.sort_box.findData(self.settings.value("library_sort", "date"))
+        self.sort_box.setCurrentIndex(max(i, 0))
+        self.sort_box.currentIndexChanged.connect(self.on_sort_changed)
         # Double-click opens a video. (Not itemActivated as well: a double-click emits both, and opening
         # rebuilds the list, so the second call would get an item that no longer exists.)
         self.lib_list.itemDoubleClicked.connect(self.on_item_open_requested)
@@ -2339,6 +2348,7 @@ class MainWindow(QMainWindow):
         ll = QVBoxLayout(left)
         ll.addWidget(QLabel("<b>Video library</b>"))
         ll.addWidget(self.track_filter)
+        ll.addWidget(self.sort_box)
         ll.addWidget(self.lib_list)
         ll.addWidget(details)
         r1 = QHBoxLayout(); r1.addWidget(add_files); r1.addWidget(add_folder)
@@ -2812,6 +2822,10 @@ class MainWindow(QMainWindow):
         self.pending_filter = target
         self.refresh_library()
 
+    def on_sort_changed(self):
+        self.settings.setValue("library_sort", self.sort_box.currentData())
+        self.refresh_library()
+
     def refresh_library(self, select_id=None):
         select_id = select_id or self.vid
         # rebuild the track filter without triggering another refresh
@@ -2838,23 +2852,33 @@ class MainWindow(QMainWindow):
         self.last_filter = show
 
         self.lib_list.clear()
+        rmap = self.lib.run_map()
         entries = []
         for vid, path, fps in self.lib.videos():
             if show is not None and meta[vid][0] != show:
                 continue
-            entries.append((effective_date(path, meta[vid][1])[0], vid, path, fps))
-        entries.sort(key=lambda e: (e[0] is None, e[0] or datetime.min.date(), e[2].lower()))
+            n = run_for(rmap, meta[vid][0])
+            entries.append((effective_date(path, meta[vid][1])[0], vid, path, fps, n,
+                            lap_stats(self.lib.laps(vid), n)))
+        by_date = lambda e: (e[0] is None, e[0] or datetime.min.date(), e[2].lower())
+        sort_key = self.sort_box.currentData()
+        if sort_key in ("lap", "run"):
+            field = "best" if sort_key == "lap" else "bestn"
+            # fastest first; videos without a time go last, then the usual date order
+            entries.sort(key=lambda e: (e[5][field] is None, e[5][field][0] if e[5][field] else 0, by_date(e)))
+        elif sort_key == "newest":
+            # undated videos still go last; same-day videos stay in name order
+            entries.sort(key=lambda e: (e[0] is None, -(e[0].toordinal() if e[0] else 0), e[2].lower()))
+        else:
+            entries.sort(key=by_date)
         missing_copies = 0
-        self.listed = [(vid, path) for _, vid, path, _ in entries]
+        self.listed = [(e[1], e[2]) for e in entries]
         dup_of = {}                                  # video id -> paths of its twin entries
         for group in self.lib.duplicate_groups():
             for v in group:
                 dup_of[v] = [pth for vv, pth, _ in self.lib.videos() if vv in group and vv != v]
-        rmap = self.lib.run_map()
         locked = self.lib.proxy_locked_ids()
-        for d, vid, path, fps in entries:
-            n = run_for(rmap, meta[vid][0])
-            s = lap_stats(self.lib.laps(vid), n)
+        for d, vid, path, fps, n, s in entries:
             exists = os.path.exists(path)
             ready = exists and proxy_path(path).exists()
             if exists and not ready and vid not in locked:
