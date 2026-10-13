@@ -1,6 +1,6 @@
 # FPV Lap Timer
 
-Version 1.1.2 (shown in the window title and **Help → About**).
+Version 1.1.3 (shown in the window title and **Help → About**).
 
 Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
 start gate, and get lap times, fastest lap and fastest 3 consecutive laps. Videos are kept in a
