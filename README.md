@@ -1,6 +1,6 @@
 # FPV DVR Lap Timer
 
-Version 1.6.0 (shown in the window title and **Help → About**).
+Version 1.7.0 (shown in the window title and **Help → About**).
 
 **Download (Windows):** [FPVLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-lap-timer/releases/latest/download/FPVLapTimer-Setup.exe)
 (installer) · [FPVLapTimer.exe](https://github.com/lenuxfpv/fpv-lap-timer/releases/latest/download/FPVLapTimer.exe)
@@ -10,7 +10,14 @@ Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each 
 start gate, and get lap times, fastest lap and your fastest run of consecutive laps (3 by default, 2-10 if you prefer). Videos are kept in a
 library grouped by track and session date.
 
-## What's new in 1.6
+## What's new in 1.7
+
+- **Start and end pictures in the export:** add a sticker (for example your pilot handle) to the centre of the
+  video at the beginning and/or the end; they can be different pictures. The export's *Save as* box now also
+  starts in the same folder as the source video. See
+  [Export the fastest N laps as a video](#export-the-fastest-n-laps-as-a-video).
+
+### Also new in 1.6
 
 - **New name: FPV DVR Lap Timer**, and the missing icon in the window's title bar is fixed.
 - **Export video with different sound:** tick **Remove audio** for a video-only file, or choose
@@ -391,7 +398,7 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
 
-### Unreleased
+### 1.7.0
 - Export video: the *Save as* box now starts in the same folder as the source video.
 - Export video: new **Start picture** and **End picture** options: stickers (e.g. your pilot handle, can be two
   different pictures) shown in the centre at the beginning and end, with *Shown for* and *Size* settings.
