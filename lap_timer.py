@@ -2081,7 +2081,7 @@ SYNC_FLAGS_OLD = ["-vsync", "0"]
 # ("keys/<id>"); only a changed key is stored, so new defaults reach everyone who never changed it.
 KEY_ACTIONS = [
     ("play", "Play / pause", "Space"),
-    ("mark", "Mark gate pass", "Z"),
+    ("mark", "Mark start/finish gate pass", "Z"),
     ("step_back", "Step one frame back (hold to repeat)", "Left"),
     ("step_fwd", "Step one frame forward (hold to repeat)", "Right"),
     ("hold_back", "Hold to play backward at 2x", "Shift+Left"),
@@ -3047,7 +3047,7 @@ class MainWindow(QMainWindow):
             sc_.setKey(QKeySequence(self.key_for(kid)))
         self.hold_bindings = {k: sp for kid, sp in (("hold_back", -2.0), ("hold_fwd", 2.0))
                               if (k := self.key_for(kid))}
-        self.mark_btn.setText(f"🏁 MARK GATE ({self.key_text('mark')})")
+        self.mark_btn.setText(f"🏁 MARK START/FINISH GATE ({self.key_text('mark')})")
         self.hint.setText("Mouse wheel on the video = frame step (Shift ×10) · all keys: View → Keyboard shortcuts…")
 
     def choose_keys(self):
