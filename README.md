@@ -360,6 +360,14 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
   choose **Replace audio with:** an audio file of your own (mp3, wav, m4a, flac, ogg…; or any file that has an audio
   track). The replacement starts with the clip, is padded with silence if it is shorter and fades out over the last
   second if it is longer. The two options are alternatives: choosing a file switches *Remove audio* off.
+- **Start and end pictures (stickers):** choose a **Start picture:** and/or an **End picture:** (they can be
+  different files; a PNG with transparency works best, JPG, WebP, BMP and GIF also work), for example your
+  pilot-handle sticker. Each is placed in the centre of the video. The start picture is shown from the first
+  frame and fades out over the last half second of its time; the end picture fades in over the first half second
+  of its time and stays to the end. *Shown for* sets how long (0.5-10 s) and *Size* the picture's height as a
+  percentage of the video height (never enlarged past its own size). They sit over the first / last seconds of
+  the clip, so raise *Start padding* or *End padding* to show them over footage before the first gate or after
+  the last lap. The pictures and their settings are remembered.
 - **The overlay:** top left, the current lap number and a running lap timer that restarts at each gate,
   with each finished lap's time listed underneath; top right, the track name and date and the running
   total of the N laps; after the last gate the final lap and total are held on screen and a gold
@@ -385,6 +393,8 @@ Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are
 
 ### Unreleased
 - Export video: the *Save as* box now starts in the same folder as the source video.
+- Export video: new **Start picture** and **End picture** options: stickers (e.g. your pilot handle, can be two
+  different pictures) shown in the centre at the beginning and end, with *Shown for* and *Size* settings.
 
 ### 1.6.0
 - Export video: new **Remove audio** checkbox to export without a sound track.

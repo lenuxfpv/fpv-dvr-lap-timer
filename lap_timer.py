@@ -599,6 +599,8 @@ def export_csv(lib, video_ids, path):
 # ----------------------------------------------------------------------------
 EXPORT_LEAD_MS = 1000     # footage shown before the first gate
 EXPORT_TAIL_MS = 2000     # footage held after the last lap, with the final total on screen
+EXPORT_PIC_S = 2.0            # how long a start / end picture (sticker) stays on screen
+EXPORT_PIC_PCT = 40           # picture height as a percentage of the video height
 EXPORT_SEEK_MARGIN_MS = 15000   # how far before the clip we seek (the exact cut is made with trim)
 
 
@@ -752,7 +754,7 @@ def _filter_text(text):
 
 
 def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS,
-                      no_audio=False, audio_file=None):
+                      no_audio=False, audio_file=None, pictures=None):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
     Returns (argv, clip_ms): the argument list and the length of the output clip."""
@@ -840,16 +842,131 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
                  if info.get("audio") else [])
         audio_map = ["-map", "0:a:0?"]
     audio_enc = [] if (no_audio and not audio_file) else ["-c:a", "aac", "-b:a", "192k"]
+    pic_in, video_args = [], ["-map", "0:v:0", "-vf", vf]
+    pictures = [p for p in (pictures or []) if p.get("path")]
+    if pictures:
+        # pictures (e.g. the pilot's sticker) laid over the centre of the video. "end": fades in and stays for
+        # the last `secs` seconds; "start": shown from the first frame, fades out after `secs` seconds. Never
+        # scaled up past their own size; colours converted to the BT.709 the video uses.
+        first = 2 if audio_file else 1                     # input number of the first picture
+        parts_g, last = [f"[0:v]{vf}[base]"], "base"
+        for k, pic in enumerate(pictures):
+            idx, secs = first + k, float(pic.get("secs", EXPORT_PIC_S))
+            th = max(16, round(H * float(pic.get("pct", EXPORT_PIC_PCT)) / 100))
+            max_w = round(W * 0.9)
+            if pic.get("where") == "start":
+                t0, t1 = 0.0, min(clip_s, secs)
+                fade_d = max(0.05, min(0.5, t1))
+                fade = f"fade=t=out:st={t1 - fade_d:.3f}:d={fade_d:.3f}:alpha=1"
+                en = f"lt(t,{t1:.3f})"
+            else:
+                t0 = max(0.0, clip_s - secs)
+                fade_d = max(0.05, min(0.5, clip_s - t0))
+                fade = f"fade=t=in:st={t0:.3f}:d={fade_d:.3f}:alpha=1"
+                en = f"gte(t,{t0:.3f})"
+            parts_g.append(f"[{idx}:v]format=rgba,scale=w='min(iw,min({max_w},iw*{th}/ih))':h=-2:flags=lanczos:"
+                           f"out_color_matrix=bt709:out_range=tv,format=yuva420p,{fade}[pic{k}]")
+            out_label = f"v{k}"
+            parts_g.append(f"[{last}][pic{k}]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1:enable='{en}'[{out_label}]")
+            last = out_label
+            pic_in += ["-loop", "1", "-framerate", "30", "-i", str(pic["path"])]
+        parts_g.append(f"[{last}]format=yuv420p[v]")
+        video_args = ["-filter_complex", ";".join(parts_g), "-map", "[v]"]
     argv = ["-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
             "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src),
             *(["-i", str(audio_file)] if audio_file else []),
+            *pic_in,
             "-t", f"{clip_ms / 1000 + 0.5:.3f}",
-            "-map", "0:v:0", *audio_map, "-vf", vf, *audio,
+            *video_args, *audio_map, *audio,
             *(SYNC_FLAGS_OLD if legacy_sync else SYNC_FLAGS),
             "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p",
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
             *audio_enc, "-movflags", "+faststart", str(out)]
     return argv, clip_ms
+
+
+class PictureRow:
+    """A picture chooser for the export dialog: path box + Browse + Clear, and 'Shown for' / 'Size' boxes.
+    The picture and the two numbers are remembered between exports (QSettings keys <key>, <key>_s, <key>_pct)."""
+    def __init__(self, dialog, label, key, tip, fade_word):
+        self.dialog, self.key = dialog, key
+        st = dialog.settings
+        self.edit = QLineEdit()
+        self.edit.setPlaceholderText("none (PNG, JPG, WebP, BMP or GIF)")
+        self.edit.setToolTip(tip)
+        remembered = str(st.value(key, "") or "")
+        self.edit.setText(remembered if remembered and os.path.exists(remembered) else "")
+        self.browse = QPushButton("Browse…")
+        self.browse.clicked.connect(self.choose)
+        self.clear = QPushButton("Clear")
+        self.clear.clicked.connect(self.edit.clear)
+        self.secs = QDoubleSpinBox()
+        self.secs.setRange(0.5, 10)
+        self.secs.setSingleStep(0.5)
+        self.secs.setDecimals(1)
+        self.secs.setSuffix(" s")
+        self.secs.setToolTip(f"How long the picture stays on screen ({fade_word}).")
+        try:
+            self.secs.setValue(float(st.value(key + "_s", EXPORT_PIC_S)))
+        except (TypeError, ValueError):
+            self.secs.setValue(EXPORT_PIC_S)
+        self.size = QSpinBox()
+        self.size.setRange(10, 100)
+        self.size.setSuffix(" %")
+        self.size.setToolTip("Picture height as a percentage of the video height (never enlarged past its own size)")
+        try:
+            self.size.setValue(int(st.value(key + "_pct", EXPORT_PIC_PCT)))
+        except (TypeError, ValueError):
+            self.size.setValue(EXPORT_PIC_PCT)
+        self.row1 = QHBoxLayout()
+        lab = QLabel(label)
+        lab.setMinimumWidth(95)
+        self.row1.addWidget(lab); self.row1.addWidget(self.edit, 1)
+        self.row1.addWidget(self.browse); self.row1.addWidget(self.clear)
+        self.row2 = QHBoxLayout()
+        self.row2.addSpacing(95)
+        self.row2.addWidget(QLabel("Shown for:")); self.row2.addWidget(self.secs)
+        self.row2.addSpacing(16)
+        self.row2.addWidget(QLabel("Size:")); self.row2.addWidget(self.size)
+        self.row2.addStretch(1)
+        self.edit.textChanged.connect(self.sync)
+        self.sync()
+
+    def path(self):
+        return self.edit.text().strip() or None
+
+    def spec(self, where):
+        """Description for build_export_args (path None when no picture is chosen)."""
+        return {"path": self.path(), "where": where, "secs": self.secs.value(), "pct": self.size.value()}
+
+    def save(self):
+        st = self.dialog.settings
+        st.setValue(self.key, self.path() or "")
+        st.setValue(self.key + "_s", self.secs.value())
+        st.setValue(self.key + "_pct", self.size.value())
+
+    def sync(self, *_):
+        has = bool(self.path())
+        self.clear.setEnabled(has)
+        self.secs.setEnabled(has)
+        self.size.setEnabled(has)
+
+    def set_busy(self, busy):
+        """While an export runs everything is locked; afterwards the boxes follow whether a picture is chosen."""
+        for w in (self.edit, self.browse):
+            w.setEnabled(not busy)
+        if busy:
+            for w in (self.clear, self.secs, self.size):
+                w.setEnabled(False)
+        else:
+            self.sync()
+
+    def choose(self):
+        p, _ = QFileDialog.getOpenFileName(
+            self.dialog, "Choose a picture", self.edit.text() or str(Path.home()),
+            "Pictures (*.png *.jpg *.jpeg *.bmp *.webp *.gif);;All files (*)")
+        if p:
+            self.edit.setText(p)
 
 
 class ExportDialog(QDialog):
@@ -920,6 +1037,12 @@ class ExportDialog(QDialog):
         self.audio_clear = QPushButton("Clear")
         self.audio_clear.clicked.connect(self.audio_edit.clear)
         self.no_audio.toggled.connect(self.sync_audio_options)
+        self.start_pic = PictureRow(self, "Start picture:", "export_start_pic",
+                                    "A picture shown in the centre of the video from the first frame, fading out after "
+                                    "the time below.", fade_word="fades out over the last half second")
+        self.end_pic = PictureRow(self, "End picture:", "export_end_pic",
+                                  "A picture shown in the centre of the video at the end, fading in.",
+                                  fade_word="fades in over the first half second")
         self.reset_pad = QPushButton("Reset padding")
         self.reset_pad.setToolTip(f"Back to the defaults: {EXPORT_LEAD_MS / 1000:g} s before, "
                                   f"{EXPORT_TAIL_MS / 1000:g} s after")
@@ -948,6 +1071,9 @@ class ExportDialog(QDialog):
         arow.addWidget(self.audio_browse); arow.addWidget(self.audio_clear)
         lay.addLayout(arow)
         self.sync_audio_options()
+        for pic in (self.start_pic, self.end_pic):
+            lay.addLayout(pic.row1)
+            lay.addLayout(pic.row2)
         lay.addWidget(self.bar)
         lay.addWidget(self.status)
         btns = QHBoxLayout(); btns.addStretch(1); btns.addWidget(self.cancel); btns.addWidget(self.go)
@@ -1003,6 +1129,10 @@ class ExportDialog(QDialog):
                 QMessageBox.warning(self, "No audio", "That file has no audio track. Pick another file, or Clear it "
                                     "to keep the video's own audio.")
                 return
+        for pic in (self.start_pic, self.end_pic):
+            if pic.path() and not os.path.exists(pic.path()):
+                QMessageBox.warning(self, "Picture not found", f"The picture can't be found:\n{pic.path()}")
+                return
         self.final = Path(self.path_edit.text().strip())
         if not self.final.name:
             return
@@ -1011,6 +1141,8 @@ class ExportDialog(QDialog):
             return
         self.part = self.final.with_name(self.final.stem + ".part.mp4")
         self.settings.setValue("export_no_audio", self.no_audio.isChecked())
+        self.start_pic.save()
+        self.end_pic.save()
         self.settings.setValue("export_lead_s", self.lead_spin.value())
         self.settings.setValue("export_tail_s", self.tail_spin.value())
         self.font, self.info = font, probe_stream(self.win["path"])
@@ -1022,7 +1154,8 @@ class ExportDialog(QDialog):
                                                tail_ms=int(self.tail_spin.value() * 1000),
                                                lead_ms=int(self.lead_spin.value() * 1000),
                                                no_audio=self.no_audio.isChecked(),
-                                               audio_file=self.audio_path)
+                                               audio_file=self.audio_path,
+                                               pictures=[self.start_pic.spec("start"), self.end_pic.spec("end")])
         self.buf = ""
         self.proc = QProcess(self)
         hide_console(self.proc)
@@ -1038,6 +1171,8 @@ class ExportDialog(QDialog):
         self.no_audio.setEnabled(False)
         for w in (self.audio_edit, self.audio_browse, self.audio_clear):
             w.setEnabled(False)
+        self.start_pic.set_busy(True)
+        self.end_pic.set_busy(True)
         self.bar.setValue(0); self.bar.show()
         self.status.setText("Exporting… high quality takes a while (a few minutes for a typical 25-30 s clip, longer at 90 fps).")
         self.proc.start()
@@ -1082,6 +1217,8 @@ class ExportDialog(QDialog):
         self.tail_spin.setEnabled(True)
         self.reset_pad.setEnabled(True)
         self.sync_audio_options()
+        self.start_pic.set_busy(False)
+        self.end_pic.set_busy(False)
         self.bar.hide()
 
     def kill_job(self):
