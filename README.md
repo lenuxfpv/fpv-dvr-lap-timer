@@ -362,8 +362,9 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 
 ## Changelog
 
-Releases and their downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
-[Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases).
+The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
+[Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
+tags remain), so this list is the record of what changed in each version.
 
 ### 1.10.0
 - Internal names now match the app name: the exe and installer are `FPVDVRLapTimer.exe` / `FPVDVRLapTimer-Setup.exe`
