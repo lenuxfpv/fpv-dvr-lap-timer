@@ -2,8 +2,8 @@
 
 Version 1.9.0 (shown in the window title and **Help → About**).
 
-**Download (Windows):** [FPVLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVLapTimer-Setup.exe)
-(installer) · [FPVLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVLapTimer.exe)
+**Download (Windows):** [FPVDVRLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer-Setup.exe)
+(installer) · [FPVDVRLapTimer.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer.exe)
 (portable) · [all releases](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases). Linux: see [Install](#install).
 
 Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
@@ -16,7 +16,7 @@ submit as my RaceGOW entry.
 
 ## Install
 
-On Windows the easiest route is the `FPVLapTimer-Setup.exe` installer (see *Windows* below), which needs
+On Windows the easiest route is the `FPVDVRLapTimer-Setup.exe` installer (see *Windows* below), which needs
 nothing else installed. To run from source (Linux, or Windows without the installer) you need Python 3.9+,
 **PyQt6** and (strongly recommended) **ffmpeg**, which provides two programs:
 `ffprobe` reads each video's frame rate (without it 30 fps is assumed and frame-stepping is off on other
@@ -40,16 +40,16 @@ the project folder where it is after installing; if you move it, run the install
 ```
 
 If `ffmpeg` / `ffprobe` is missing, ffmpeg has no libx264, or no bold font is found, the script warns
-you and prints the fix for your distro. Uninstalling leaves your library alone and asks whether to also delete the cached smooth copies (`~/.cache/fpv-lap-timer`) to free disk space.
+you and prints the fix for your distro. Uninstalling leaves your library alone and asks whether to also delete the cached smooth copies (`~/.cache/fpv-dvr-lap-timer`) to free disk space.
 
 ### Windows
 
-**Installer (easiest).** Download **`FPVLapTimer-Setup.exe`** from the
+**Installer (easiest).** Download **`FPVDVRLapTimer-Setup.exe`** from the
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases) and run it. No Python is needed and no admin
 rights: it installs to `%LOCALAPPDATA%\Programs\FPV DVR Lap Timer`, adds a Start Menu shortcut (and a Desktop one if
 you tick it) and an "FPV DVR Lap Timer" entry in Settings > Apps, where you can uninstall it. The uninstaller asks
 whether to also delete the smooth-scrub copies; your library and videos are never touched. The release also has the
-bare `FPVLapTimer.exe` if you prefer a portable copy (it has no Apps entry).
+bare `FPVDVRLapTimer.exe` if you prefer a portable copy (it has no Apps entry).
 
 **ffmpeg.** It isn't bundled. If ffmpeg or ffprobe can't be found when the app starts, it offers to install ffmpeg with
 winget (tick *Don't ask again* to stop the prompt, and use **Help → Install ffmpeg…** any time). The app picks up a
@@ -61,11 +61,11 @@ shortcut too). It creates a private `.venv`, installs PyQt6, and adds a Start Me
 entry in Settings > Apps that runs the uninstall. It needs Python 3.9+; if Python or ffmpeg is missing it offers to
 install them with winget (or run `winget install Python.Python.3.12` yourself), and it warns if your ffmpeg lacks
 libx264. `install.bat -Uninstall` removes the shortcuts and leaves your library alone; it asks whether to also delete
-the cached smooth copies (`%LOCALAPPDATA%\fpv-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`
+the cached smooth copies (`%LOCALAPPDATA%\fpv-dvr-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`
 deletes them without asking). If a script fails, the error message says which step; the app itself needs only
 `pip install PyQt6`.
 
-**Building it yourself.** Run **`build_windows.bat`** on Windows to produce `dist\FPVLapTimer.exe` with PyInstaller
+**Building it yourself.** Run **`build_windows.bat`** on Windows to produce `dist\FPVDVRLapTimer.exe` with PyInstaller
 (no Python needed to run it; put `ffmpeg.exe` and `ffprobe.exe` in `bin` first to bundle them). The build stamps the
 app's version (`VERSION` in `lap_timer.py`) into the exe's Properties > Details tab. The installer is built from
 `installer.iss` with Inno Setup. Both are built automatically by the **Build Windows exe** GitHub Actions workflow
@@ -85,15 +85,20 @@ You can also drag video files or folders onto the window.
 
 ## Where your data lives
 
-Everything is stored in one SQLite database - Linux `~/.local/share/fpv-lap-timer/library.db`,
-Windows `%APPDATA%\fpv-lap-timer\library.db`, macOS `~/Library/Application Support/fpv-lap-timer/`.
+Everything is stored in one SQLite database - Linux `~/.local/share/fpv-dvr-lap-timer/library.db`,
+Windows `%APPDATA%\fpv-dvr-lap-timer\library.db`, macOS `~/Library/Application Support/fpv-dvr-lap-timer/`.
 Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds each video's path,
 gate marks, bad-lap flags, track name and session date. **Nothing is written next to your videos**
 (apart from an exported video, which you choose to save; see *Export*),
 and the app never modifies or deletes video files. Back up that one file to keep your history.
 Preferences (theme, keyboard shortcuts, the *Auto-build* / *Build when adding* checkboxes) are stored
-separately by Qt (Linux `~/.config/fpv-lap-timer/app.conf`, Windows registry) and are not part of the
+separately by Qt (Linux `~/.config/fpv-dvr-lap-timer/app.conf`, Windows registry) and are not part of the
 library file.
+
+*Upgrading from 1.9 or earlier:* those versions used the name `fpv-lap-timer` for the folders above. The first start of
+the new version moves the library and smooth-copy folders to the new names (one rename; nothing is copied or deleted,
+and if the move isn't possible the old folder is simply kept in use) and copies your saved preferences across, so
+your library, copies, keyboard shortcuts and export choices carry over untouched.
 
 **Duplicate protection.** Adding a file that is already in the library (the same file reached through a
 different path, a symlink, or a copy with the same name, size and date) is refused with a warning
@@ -187,8 +192,8 @@ position. When copies get built:
 Once a copy is in use, scrubbing, stepping and reverse are fluid and frame-exact. Marks are saved as
 times, so they are identical whichever version you used. More about the copies:
 
-- The copies live in a cache folder (Linux `~/.cache/fpv-lap-timer/smooth`, Windows
-  `%LOCALAPPDATA%\fpv-lap-timer\smooth`), never next to your videos. **Clear smooth copies…**
+- The copies live in a cache folder (Linux `~/.cache/fpv-dvr-lap-timer/smooth`, Windows
+  `%LOCALAPPDATA%\fpv-dvr-lap-timer\smooth`), never next to your videos. **Clear smooth copies…**
   deletes them to free space; they can be rebuilt. *Remove* also deletes that video's copy.
 - A copy is found again by the video's **file name, size and modified date**, not its folder, so
   moving or reorganising your videos (or using *Fix paths…*) does not trigger a rebuild. It is rebuilt
@@ -357,8 +362,14 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 
 ## Changelog
 
-Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
+Releases and their downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases).
+
+### Unreleased
+- Internal names now match the app name: the exe and installer are `FPVDVRLapTimer.exe` / `FPVDVRLapTimer-Setup.exe`
+  (the download links above changed accordingly), and the library, cache and settings folders are `fpv-dvr-lap-timer`.
+  Existing libraries, smooth copies and settings are moved over automatically on first start, the installer removes
+  the old `FPVLapTimer.exe` and shortcuts, and the uninstallers clear both the old and new cache folders.
 
 ### 1.9.0
 - **Add videos…** and **Add folder…** now let you choose the track for each file as you add it (or for all the
