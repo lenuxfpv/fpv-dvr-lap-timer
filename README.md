@@ -238,7 +238,8 @@ action and press the key you want (a single key, optionally with Ctrl / Shift / 
 puts one action back, *Clear* leaves it without a key, and *Reset all to defaults* restores everything.
 Giving two actions the same key (or using Return, which always opens the selected video in the library) is
 blocked: the clashing rows turn orange and *Save* stays disabled until you fix it. The choices are
-remembered, and the **MARK GATE** button label and the hint under the video show your keys. A Mark gate key
+remembered, and the **MARK GATE** button label shows your Mark gate key. (The line under the video just points
+back to this dialog.) A Mark gate key
 you set in an older version carries over.
 
 ### Dark mode

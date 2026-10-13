@@ -2329,13 +2329,8 @@ class MainWindow(QMainWindow):
             sc_.setKey(QKeySequence(self.key_for(kid)))
         self.hold_bindings = {k: sp for kid, sp in (("hold_back", -2.0), ("hold_fwd", 2.0))
                               if (k := self.key_for(kid))}
-        t = self.key_text
-        self.mark_btn.setText(f"🏁 MARK GATE ({t('mark')})")
-        self.hint.setText(
-            f"{t('play')} play/pause · {t('mark')} mark · {t('step_back')}/{t('step_fwd')} frame (hold to repeat) · "
-            f"wheel on video = frame (Shift ×10) · hold {t('hold_back')}/{t('hold_fwd')} = 2x play · "
-            f"{t('jump_back')}/{t('jump_fwd')} ±5s · {t('shuttle_back')}/{t('shuttle_stop')}/{t('shuttle_fwd')} shuttle · "
-            f"{t('prev_gate')}/{t('next_gate')} prev/next gate · {t('slower')} {t('faster')} speed")
+        self.mark_btn.setText(f"🏁 MARK GATE ({self.key_text('mark')})")
+        self.hint.setText("Mouse wheel on the video = frame step (Shift ×10) · all keys: View → Keyboard shortcuts…")
 
     def choose_keys(self):
         dlg = KeysDialog({kid: self.key_for(kid) for kid in KEY_DEFAULTS}, self)
