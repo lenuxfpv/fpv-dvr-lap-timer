@@ -1,5 +1,7 @@
 # FPV DVR Lap Timer
 
+![FPV DVR Lap Timer: library on the left, video and seek bar in the middle, gate marks and lap times on the right](docs/screenshot.png)
+
 Version 1.10.5 (shown in the window title and **Help → About**).
 
 **Download (Windows):** [FPVDVRLapTimer-Setup.exe](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases/latest/download/FPVDVRLapTimer-Setup.exe)
@@ -372,6 +374,7 @@ The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapT
 tags remain), so this list is the record of what changed in each version.
 
 ### Unreleased
+- README: a screenshot of the app at the top.
 - **Help → About** now has links that open the library folder (where `library.db` lives) and the smooth-copies folder.
 
 ### 1.10.5
