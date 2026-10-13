@@ -345,7 +345,7 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 - **The overlay:** top left, the current lap number and a running lap timer that restarts at each gate,
   with each finished lap's time listed underneath; top right, the track name and date and the running
   total of the N laps; after the last gate the final lap and total are held on screen and a gold
-  *FASTEST N CONSECUTIVE LAPS m:ss.mmm* banner appears. Times show as `ss.mmm` until they reach a minute, then `m:ss.mmm`.
+  *FASTEST N CONSECUTIVE LAPS m:ss.mmm* banner appears. Times show as `ss.mmm` until they reach a minute, then `m:ss.mmm`. When the export finishes, an *Open the folder* link opens the folder it was saved in.
 - **Notes:** if your ffmpeg has no H.264 encoder (libx264) the app tells you so in plain words, with the fix for
   your system, before it starts (for exports and for smooth-scrub copies). It needs ffmpeg with libx264 and the `drawtext` filter (built with freetype; every normal full build has it, and the app checks and tells you before exporting) and a bold font file (found automatically: DejaVu Sans Bold / Liberation on
   Linux, Arial on Windows and macOS). Exporting is slow because it is a high-quality re-encode: about 30 s for a 28 s 60 fps clip on a fast machine and a few minutes for a 90 fps clip read from a network share, so leave it running. The source video
@@ -365,6 +365,10 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 The latest release and its downloads (`FPVDVRLapTimer-Setup.exe` and `FPVDVRLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases); older releases were removed (the version
 tags remain), so this list is the record of what changed in each version.
+
+### Unreleased
+- Export video: when the export finishes, an **Open the folder** link under the *Done* message opens the folder
+  the video was saved in.
 
 ### 1.10.2
 - Export video: the overlay leaves out the minutes while a time is under a minute (`28.999`, not `0:28.999`);

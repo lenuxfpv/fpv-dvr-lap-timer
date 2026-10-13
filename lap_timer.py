@@ -1086,6 +1086,9 @@ class ExportDialog(QDialog):
         self.status = QLabel("Re-encodes the original footage (not the smooth copy) as H.264 MP4 at its original "
                              "size and frame rate, with the lap timer drawn on it.")
         self.status.setWordWrap(True)
+        self.folder_link = QLabel()                        # shown once the export is done: opens the folder
+        self.folder_link.setOpenExternalLinks(True)
+        self.folder_link.hide()
         self.status.setStyleSheet("color:gray")
         self.settings = app_settings()
         def padding_spin(key, default_ms, tip):
@@ -1160,6 +1163,7 @@ class ExportDialog(QDialog):
             lay.addLayout(pic.row2)
         lay.addWidget(self.bar)
         lay.addWidget(self.status)
+        lay.addWidget(self.folder_link)
         btns = QHBoxLayout(); btns.addStretch(1); btns.addWidget(self.cancel); btns.addWidget(self.go)
         lay.addLayout(btns)
 
@@ -1263,6 +1267,7 @@ class ExportDialog(QDialog):
         self.start_pic.set_busy(True)
         self.end_pic.set_busy(True)
         self.bar.setValue(0); self.bar.show()
+        self.folder_link.hide()
         self.status.setText("Exporting… high quality takes a while (a few minutes for a typical 25-30 s clip, longer at 90 fps).")
         self.proc.start()
 
@@ -1287,6 +1292,9 @@ class ExportDialog(QDialog):
             self.bar.setValue(100)
             self.status.setStyleSheet("")
             self.status.setText(f"Done: {self.final}")
+            folder = QUrl.fromLocalFile(str(self.final.parent)).toString()
+            self.folder_link.setText(f'<a href="{folder}">Open the folder</a>')
+            self.folder_link.show()
             self.cancel.setText("Close")
             self.final_ok = True
             return
