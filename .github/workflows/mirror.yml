@@ -28,4 +28,29 @@ jobs:
             --replace-text ../replacements.txt \
             --replace-message ../replacements.txt
           git push --mirror "https://x-access-token:${DEST_TOKEN}@github.com/lenuxfpv/fpv-dvr-lap-timer.git"
- 
+
+      # git only carries the code and tags, not GitHub releases, so copy them across. Only releases newer than the
+      # newest one already on the public repo are copied (older ones were removed on purpose). Needs PUBLIC_REPO_TOKEN
+      # to be allowed to write releases (fine-grained: Contents read/write).
+      - name: Copy new releases to the public repo
+        env:
+          SRC_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEST_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          SRC="${{ github.repository }}"
+          DEST="lenuxfpv/fpv-dvr-lap-timer"
+          newest=$(GH_TOKEN="$DEST_TOKEN" gh release list -R "$DEST" --limit 200 --json tagName --jq '.[].tagName' | sort -V | tail -1)
+          echo "Newest release on $DEST: ${newest:-none}"
+          # oldest first, so the newest ends up marked Latest
+          tags=$(GH_TOKEN="$SRC_TOKEN" gh release list -R "$SRC" --limit 200 --json tagName,isDraft --jq '.[] | select(.isDraft | not) | .tagName' | sort -V)
+          for tag in $tags; do
+            if [ -n "$newest" ] && [ "$(printf '%s\n%s\n' "$newest" "$tag" | sort -V | tail -1)" = "$newest" ]; then
+              continue
+            fi
+            echo "Copying release $tag"
+            mkdir -p "rel/$tag"
+            GH_TOKEN="$SRC_TOKEN" gh release download "$tag" -R "$SRC" -D "rel/$tag"
+            title=$(GH_TOKEN="$SRC_TOKEN" gh release view "$tag" -R "$SRC" --json name --jq '.name')
+            body=$(GH_TOKEN="$SRC_TOKEN" gh release view "$tag" -R "$SRC" --json body --jq '.body')
+            GH_TOKEN="$DEST_TOKEN" gh release create "$tag" rel/"$tag"/* -R "$DEST" --verify-tag --title "${title:-$tag}" --notes "$body"
+          done
