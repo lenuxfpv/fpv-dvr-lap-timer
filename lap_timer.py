@@ -19,13 +19,13 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, QTimer
 from PyQt6.QtCore import QDate, QEvent, QProcess, QSize, QRectF, QSettings, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QColor, QFont, QFontMetrics, QKeySequence, QPainter, QPen, QShortcut
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QKeySequence, QPainter, QPen, QShortcut
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
     QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-    QProgressBar, QPushButton, QScrollArea, QSlider, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSlider, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QWidget,
 )
 
@@ -111,7 +111,31 @@ def find_tool(name):
             cand = root / sub / exe
             if cand.is_file():
                 return str(cand)
-    return shutil.which(name)
+    found = shutil.which(name)
+    if found:
+        return found
+    for d in _winget_tool_dirs():
+        cand = d / exe
+        if cand.is_file():
+            return str(cand)
+    return None
+
+
+def _winget_tool_dirs():
+    """Windows: folders where `winget install Gyan.FFmpeg` leaves ffmpeg. The running app's PATH
+    doesn't see a program installed after it started, so look there directly."""
+    if sys.platform != "win32":
+        return []
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        return []
+    winget = Path(base) / "Microsoft" / "WinGet"
+    dirs = [winget / "Links"]
+    try:
+        dirs += sorted((winget / "Packages").glob("Gyan.FFmpeg*/ffmpeg-*/bin"), reverse=True)
+    except OSError:
+        pass
+    return dirs
 
 
 def file_identity(path):
@@ -547,6 +571,19 @@ def ffmpeg_has_encoder(name="libx264"):
         except Exception:
             _encoder_cache[key] = True
     return _encoder_cache[key]
+
+
+FFMPEG_DOWNLOAD_URL = "https://ffmpeg.org/download.html"
+
+
+def ffmpeg_install_hint():
+    """One-line, copy-pasteable way to install ffmpeg on this OS (None on Windows: the app can run winget)."""
+    if sys.platform == "win32":
+        return None
+    if sys.platform == "darwin":
+        return "brew install ffmpeg"
+    return ("your package manager's ffmpeg package, e.g.  sudo apt install ffmpeg  or  sudo pacman -S ffmpeg"
+            "  (Fedora: enable RPM Fusion, then  sudo dnf install ffmpeg)")
 
 
 def x264_help():
@@ -1861,11 +1898,102 @@ class MainWindow(QMainWindow):
         apply_theme(QApplication.instance(), theme)
 
         help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction("Install &ffmpeg…").triggered.connect(self.offer_ffmpeg)
         help_menu.addAction("&About").triggered.connect(
             lambda: QMessageBox.about(self, "About FPV Lap Timer", f"FPV Lap Timer {VERSION}"))
 
         self.refresh_mark_key_labels()
         self.refresh_library()
+
+    # ---- ffmpeg check -------------------------------------------------------
+    def missing_ffmpeg_tools(self):
+        return [t for t in ("ffmpeg", "ffprobe") if not find_tool(t)]
+
+    def offer_ffmpeg_on_start(self):
+        """At start-up: if ffmpeg/ffprobe are missing, offer to install them (unless told not to ask again)."""
+        if self.missing_ffmpeg_tools() and not self.settings.value("ffmpeg_prompt_off", False, type=bool):
+            self.offer_ffmpeg()
+
+    def offer_ffmpeg(self):
+        missing = self.missing_ffmpeg_tools()
+        if not missing:
+            QMessageBox.information(self, "ffmpeg", f"ffmpeg is installed:\n{find_tool('ffmpeg')}")
+            return
+        can_winget = sys.platform == "win32" and shutil.which("winget") is not None
+        hint = ffmpeg_install_hint()
+        text = (f"{' and '.join(missing)} {'was' if len(missing) == 1 else 'were'} not found. The app runs without "
+                f"{'it' if len(missing) == 1 else 'them'}, but it can't build smooth-scrub copies (scrubbing only jumps between keyframes), it assumes "
+                "30 fps for frame-stepping, and it can't export videos.")
+        if can_winget:
+            text += "\n\nInstall ffmpeg now with winget? It is a free download and takes about a minute."
+        elif hint:
+            text += f"\n\nTo install it, use {hint}, then restart the app."
+        else:
+            text += "\n\nwinget isn't available on this PC. Download a full build (with libx264) and put " \
+                    "ffmpeg.exe and ffprobe.exe in a 'bin' folder next to the app."
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("ffmpeg needed")
+        box.setText(text)
+        install = box.addButton("Install with winget", QMessageBox.ButtonRole.AcceptRole) if can_winget else None
+        web = box.addButton("Open download page", QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+        never = QCheckBox("Don't ask again at start-up (Help → Install ffmpeg… still works)")
+        box.setCheckBox(never)
+        box.exec()
+        self.settings.setValue("ffmpeg_prompt_off", never.isChecked())
+        clicked = box.clickedButton()
+        if install is not None and clicked is install:
+            self.install_ffmpeg_winget()
+        elif clicked is web:
+            QDesktopServices.openUrl(QUrl(FFMPEG_DOWNLOAD_URL))
+
+    def install_ffmpeg_winget(self):
+        progress = QProgressDialog("Installing ffmpeg with winget…\nThis can take a minute.", "", 0, 0, self)
+        progress.setWindowTitle("Installing ffmpeg")
+        progress.setCancelButton(None)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        hide_console(proc)
+
+        def finished(code, _status):
+            progress.close()
+            output = bytes(proc.readAll()).decode("utf-8", "replace").strip()
+            proc.deleteLater()
+            self.refresh_ffmpeg_state()
+            if not self.missing_ffmpeg_tools():
+                self.statusBar().showMessage("ffmpeg installed", 6000)
+            else:
+                QMessageBox.warning(self, "ffmpeg", "winget could not install ffmpeg"
+                                    + (f" (exit code {code})" if code else "")
+                                    + ".\n\nTry running  winget install Gyan.FFmpeg  in a terminal, or download "
+                                      "ffmpeg yourself and put ffmpeg.exe and ffprobe.exe in a 'bin' folder next to the app."
+                                    + (f"\n\n{output[-600:]}" if output else ""))
+
+        def failed(_err):
+            if proc.state() == QProcess.ProcessState.NotRunning:
+                finished(-1, None)
+
+        proc.finished.connect(finished)
+        proc.errorOccurred.connect(failed)
+        proc.start("winget", ["install", "--id", "Gyan.FFmpeg", "-e",
+                              "--accept-package-agreements", "--accept-source-agreements"])
+        progress.show()
+
+    def refresh_ffmpeg_state(self):
+        """Re-enable the ffmpeg-dependent controls after ffmpeg appeared while the app was running."""
+        _encoder_cache.clear()
+        if find_tool("ffmpeg"):
+            for w in (self.build_on_add, self.auto_proxy, self.proxy_btn):
+                w.setEnabled(True)
+            for w in (self.build_all_btn, self.proxy_btn):
+                if w.toolTip() == "Needs ffmpeg installed":
+                    w.setToolTip("")
+            self.build_all_btn.setToolTip("Build smooth-scrub copies for every video shown in the list that lacks one")
+            self.update_queue_ui()
+            self.update_proxy_ui()
 
     # ---- library backup / restore / merge ----------------------------------
     def export_library(self):
@@ -2783,6 +2911,7 @@ def main():
     win = MainWindow()
     install_error_handler(lambda: win)
     win.show()
+    QTimer.singleShot(600, win.offer_ffmpeg_on_start)      # after the window is up
     # allow: lap_timer.py video1.ts video2.mp4
     if len(sys.argv) > 1:
         win.open_paths(sys.argv[1:])

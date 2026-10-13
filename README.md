@@ -50,7 +50,10 @@ Properties > Details tab.
 The same exe is built automatically by the **Build Windows exe** GitHub Actions workflow
 (`.github/workflows/build-windows.yml`): run it from the repo's Actions tab, or push a tag like `v1.1.3`
 to also publish a release. It starts the exe as a smoke test and checks the stamped version. ffmpeg is not
-bundled in that build, so put it in a `bin` folder next to the exe or on PATH.
+bundled in that build, so put it in a `bin` folder next to the exe or on PATH. If ffmpeg or ffprobe can't be
+found when the app starts, it offers to install ffmpeg with winget (Windows) or points you to the install
+command / download page; tick *Don't ask again* to stop the prompt, and use **Help → Install ffmpeg…** any
+time. The app picks up a freshly installed ffmpeg without a restart.
 
 > The exe build has been run on a Windows runner (start-up only), but `install.ps1` / `install.bat` and the
 > app's menus, playback and exports have not been tried on a real Windows machine yet. If a script fails,
