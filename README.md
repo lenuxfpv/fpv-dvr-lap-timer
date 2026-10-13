@@ -1,6 +1,6 @@
 # FPV Lap Timer
 
-Version 1.1.4 (shown in the window title and **Help → About**).
+Version 1.1.5 (shown in the window title and **Help → About**).
 
 Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each pass through the
 start gate, and get lap times, fastest lap and fastest 3 consecutive laps. Videos are kept in a
@@ -295,7 +295,7 @@ Makes a shareable video of your fastest 3 consecutive laps with a lap timer draw
 Releases and their `FPVLapTimer.exe` downloads are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
 
-### Unreleased
+### 1.1.5
 - The app checks for ffmpeg/ffprobe on start-up and offers to install ffmpeg with winget (Windows) or
   shows the install command / download page; **Help → Install ffmpeg…** does the same any time, and a
   freshly installed ffmpeg is picked up without restarting.
