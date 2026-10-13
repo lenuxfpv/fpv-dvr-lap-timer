@@ -12,9 +12,9 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -55,13 +55,13 @@ jobs:
           Write-Host "ProductVersion: $v"
           if ($v -ne "${{ steps.ver.outputs.version }}") { throw "exe version '$v' != ${{ steps.ver.outputs.version }}" }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: FPVLapTimer-${{ steps.ver.outputs.version }}-windows
           path: dist/FPVLapTimer.exe
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/FPVLapTimer.exe
