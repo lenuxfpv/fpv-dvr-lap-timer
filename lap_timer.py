@@ -752,7 +752,7 @@ def _filter_text(text):
 
 
 def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS,
-                      no_audio=False):
+                      no_audio=False, audio_file=None):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
     Returns (argv, clip_ms): the argument list and the length of the output clip."""
@@ -827,12 +827,23 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     cut = f"trim=start={skip:.6f}:duration={clip_ms / 1000:.6f},setpts=PTS-STARTPTS"
     tags = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
     vf = ",".join([cut, convert] + parts + [tags, "format=yuv420p"])
-    audio = (["-af", f"atrim=start={skip:.6f}:duration={clip_ms / 1000:.6f},asetpts=PTS-STARTPTS"]
-             if info.get("audio") and not no_audio else [])
-    audio_map = ["-an"] if no_audio else ["-map", "0:a:0?"]                  # -an: leave the sound track out
-    audio_enc = [] if no_audio else ["-c:a", "aac", "-b:a", "192k"]
+    clip_s = clip_ms / 1000
+    if audio_file:                                         # replacement sound track, from its start; padded with
+        fade = min(1.0, clip_s)                            # silence if too short, cut (with a 1 s fade) if too long
+        audio = ["-af", f"apad=whole_dur={clip_s:.6f},atrim=duration={clip_s:.6f},asetpts=PTS-STARTPTS,"
+                        f"afade=t=out:st={clip_s - fade:.6f}:d={fade:.3f}"]
+        audio_map = ["-map", "1:a:0"]
+    elif no_audio:
+        audio, audio_map = [], ["-an"]                     # -an: leave the sound track out
+    else:
+        audio = (["-af", f"atrim=start={skip:.6f}:duration={clip_s:.6f},asetpts=PTS-STARTPTS"]
+                 if info.get("audio") else [])
+        audio_map = ["-map", "0:a:0?"]
+    audio_enc = [] if (no_audio and not audio_file) else ["-c:a", "aac", "-b:a", "192k"]
     argv = ["-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
-            "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src), "-t", f"{clip_ms / 1000 + 0.5:.3f}",
+            "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src),
+            *(["-i", str(audio_file)] if audio_file else []),
+            "-t", f"{clip_ms / 1000 + 0.5:.3f}",
             "-map", "0:v:0", *audio_map, "-vf", vf, *audio,
             *(SYNC_FLAGS_OLD if legacy_sync else SYNC_FLAGS),
             "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p",
@@ -898,6 +909,16 @@ class ExportDialog(QDialog):
         self.no_audio = QCheckBox("Remove audio")
         self.no_audio.setToolTip("Export the video without a sound track")
         self.no_audio.setChecked(self.settings.value("export_no_audio", False, type=bool))
+        self.audio_edit = QLineEdit()
+        self.audio_edit.setPlaceholderText("none: keep the video's own audio")
+        self.audio_edit.setToolTip("An audio file to use instead of the video's sound. It starts with the clip, "
+                                   "is padded with silence if shorter and faded out at the end if longer.")
+        self.audio_edit.textChanged.connect(self.sync_audio_options)
+        self.audio_browse = QPushButton("Browse…")
+        self.audio_browse.clicked.connect(self.browse_audio)
+        self.audio_clear = QPushButton("Clear")
+        self.audio_clear.clicked.connect(self.audio_edit.clear)
+        self.no_audio.toggled.connect(self.sync_audio_options)
         self.reset_pad = QPushButton("Reset padding")
         self.reset_pad.setToolTip(f"Back to the defaults: {EXPORT_LEAD_MS / 1000:g} s before, "
                                   f"{EXPORT_TAIL_MS / 1000:g} s after")
@@ -921,10 +942,32 @@ class ExportDialog(QDialog):
         trow.addStretch(1)
         lay.addLayout(trow)
         lay.addWidget(self.no_audio)
+        arow = QHBoxLayout()
+        arow.addWidget(QLabel("Replace audio with:")); arow.addWidget(self.audio_edit, 1)
+        arow.addWidget(self.audio_browse); arow.addWidget(self.audio_clear)
+        lay.addLayout(arow)
+        self.sync_audio_options()
         lay.addWidget(self.bar)
         lay.addWidget(self.status)
         btns = QHBoxLayout(); btns.addStretch(1); btns.addWidget(self.cancel); btns.addWidget(self.go)
         lay.addLayout(btns)
+
+    def sync_audio_options(self, *_):
+        """'Remove audio' and a replacement audio file are alternatives: choosing one switches the other off."""
+        has_file = bool(self.audio_edit.text().strip())
+        if has_file and self.no_audio.isChecked():
+            self.no_audio.setChecked(False)
+        self.no_audio.setEnabled(not has_file)
+        self.audio_edit.setEnabled(not self.no_audio.isChecked())
+        self.audio_browse.setEnabled(not self.no_audio.isChecked())
+        self.audio_clear.setEnabled(has_file)
+
+    def browse_audio(self):
+        p, _ = QFileDialog.getOpenFileName(
+            self, "Choose audio", self.audio_edit.text() or str(Path.home()),
+            "Audio (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma);;All files (*)")
+        if p:
+            self.audio_edit.setText(p)
 
     def reset_padding(self):
         """Put the start and end padding back to their default values."""
@@ -950,6 +993,15 @@ class ExportDialog(QDialog):
         if not os.path.exists(self.win["path"]):
             QMessageBox.warning(self, "Video not found", f"The source video can't be found:\n{self.win['path']}")
             return
+        self.audio_path = self.audio_edit.text().strip() or None
+        if self.audio_path:
+            if not os.path.exists(self.audio_path):
+                QMessageBox.warning(self, "Audio not found", f"The audio file can't be found:\n{self.audio_path}")
+                return
+            if find_ffprobe() and not probe_stream(self.audio_path)["audio"]:
+                QMessageBox.warning(self, "No audio", "That file has no audio track. Pick another file, or Clear it "
+                                    "to keep the video's own audio.")
+                return
         self.final = Path(self.path_edit.text().strip())
         if not self.final.name:
             return
@@ -968,7 +1020,8 @@ class ExportDialog(QDialog):
                                                legacy_sync=self.legacy,
                                                tail_ms=int(self.tail_spin.value() * 1000),
                                                lead_ms=int(self.lead_spin.value() * 1000),
-                                               no_audio=self.no_audio.isChecked())
+                                               no_audio=self.no_audio.isChecked(),
+                                               audio_file=self.audio_path)
         self.buf = ""
         self.proc = QProcess(self)
         hide_console(self.proc)
@@ -982,6 +1035,8 @@ class ExportDialog(QDialog):
         self.tail_spin.setEnabled(False)
         self.reset_pad.setEnabled(False)
         self.no_audio.setEnabled(False)
+        for w in (self.audio_edit, self.audio_browse, self.audio_clear):
+            w.setEnabled(False)
         self.bar.setValue(0); self.bar.show()
         self.status.setText("Exporting… high quality takes a while (a few minutes for a typical 25-30 s clip, longer at 90 fps).")
         self.proc.start()
@@ -1025,7 +1080,7 @@ class ExportDialog(QDialog):
         self.lead_spin.setEnabled(True)
         self.tail_spin.setEnabled(True)
         self.reset_pad.setEnabled(True)
-        self.no_audio.setEnabled(True)
+        self.sync_audio_options()
         self.bar.hide()
 
     def kill_job(self):

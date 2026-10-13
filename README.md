@@ -348,7 +348,10 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
   "End padding" in the export dialog, 0–10 s each; **Reset padding** puts both back to the defaults; your
   choice is remembered; the start can't go earlier than the start of the video). It is re-encoded at high quality
   (x264 CRF 16, slow preset) with BT.709 colours so it plays correctly on YouTube, Discord and phones.
-  Audio is kept if the source has any, unless you tick **Remove audio** in the export dialog (remembered).
+  Audio is kept if the source has any, unless you tick **Remove audio** in the export dialog (remembered) or
+  choose **Replace audio with:** an audio file of your own (mp3, wav, m4a, flac, ogg…; or any file that has an audio
+  track). The replacement starts with the clip, is padded with silence if it is shorter and fades out over the last
+  second if it is longer. The two options are alternatives: choosing a file switches *Remove audio* off.
 - **The overlay:** top left, the current lap number and a running lap timer that restarts at each gate,
   with each finished lap's time listed underneath; top right, the track name and date and the running
   total of the N laps; after the last gate the final lap and total are held on screen and a gold
@@ -374,6 +377,7 @@ Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are
 
 ### Unreleased
 - Export video: new **Remove audio** checkbox to export without a sound track.
+- Export video: **Replace audio with:** lets you add your own audio file in place of the video's sound.
 - The app is now called **FPV DVR Lap Timer** (window title, About, shortcuts, the installer and the Settings >
   Apps entry). File names, the library folder and settings are unchanged, so nothing needs migrating; the
   installer replaces the old "FPV Lap Timer" shortcuts.
