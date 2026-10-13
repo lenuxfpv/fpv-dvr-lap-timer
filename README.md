@@ -6,6 +6,18 @@ Review FPV drone footage (`.ts`, `.mp4`, also `.mov .mkv .m4v .avi`), mark each 
 start gate, and get lap times, fastest lap and fastest 3 consecutive laps. Videos are kept in a
 library grouped by track and session date.
 
+## What's new in 1.2.0
+
+- **Every keyboard shortcut can be changed**, not just Mark gate: **View → Keyboard shortcuts…**
+  (clashing keys are blocked). See [Changing the keys](#changing-the-keys).
+- **Windows installer**: download `FPVLapTimer-Setup.exe` from the
+  [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases). No Python or admin rights needed, and
+  it adds a Settings > Apps entry to uninstall (with an option to delete the smooth-scrub cache).
+- **ffmpeg help**: if ffmpeg is missing, the app offers to install it (winget on Windows).
+- **Fix paths…** handles videos from several folders at once.
+
+Older releases are listed in the [Changelog](#changelog).
+
 ## Install
 
 You need Python 3.9+, **PyQt6** and (strongly recommended) **ffmpeg**, which provides two programs:
