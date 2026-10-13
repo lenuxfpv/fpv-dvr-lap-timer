@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 AUTHOR = "LenuxFPV"
 APP_NAME = "FPV DVR Lap Timer"        # shown to users; file names, data folders and settings keep the old ids
 VIDEO_EXTS = {".ts", ".mp4", ".mov", ".mkv", ".m4v", ".avi"}
