@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 VERSION = "1.2.0"
+AUTHOR = "LenuxFPV"
 VIDEO_EXTS = {".ts", ".mp4", ".mov", ".mkv", ".m4v", ".avi"}
 
 
@@ -1971,7 +1972,8 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("Install &ffmpeg…").triggered.connect(self.offer_ffmpeg)
         help_menu.addAction("&About").triggered.connect(
-            lambda: QMessageBox.about(self, "About FPV Lap Timer", f"FPV Lap Timer {VERSION}"))
+            lambda: QMessageBox.about(self, "About FPV Lap Timer",
+                                      f"FPV Lap Timer {VERSION}\n\nAuthor: {AUTHOR}"))
 
         self.apply_keys()
         self.refresh_library()
