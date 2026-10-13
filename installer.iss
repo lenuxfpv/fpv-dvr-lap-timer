@@ -1,4 +1,4 @@
-; Inno Setup script for the FPV Lap Timer Windows installer (FPVLapTimer-Setup.exe).
+; Inno Setup script for the FPV DVR Lap Timer Windows installer (FPVLapTimer-Setup.exe).
 ; Built by the "Build Windows exe" workflow after PyInstaller has produced dist\FPVLapTimer.exe:
 ;   iscc /DMyAppVersion=1.2.3 installer.iss
 ; Per-user install (no admin rights): the app goes in %LOCALAPPDATA%\Programs, with a Start Menu
@@ -9,10 +9,10 @@
 
 [Setup]
 AppId={{B7C5D2E1-6F3A-4C8B-9E2D-5A1F4D7C3B90}
-AppName=FPV Lap Timer
+AppName=FPV DVR Lap Timer
 AppVersion={#MyAppVersion}
-AppPublisher=FPV Lap Timer
-DefaultDirName={autopf}\FPV Lap Timer
+AppPublisher=LenuxFPV
+DefaultDirName={autopf}\FPV DVR Lap Timer
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=dist
@@ -29,12 +29,17 @@ Name: "desktopicon"; Description: "Create a &Desktop shortcut"; Flags: unchecked
 [Files]
 Source: "dist\FPVLapTimer.exe"; DestDir: "{app}"; Flags: ignoreversion
 
+[InstallDelete]
+; shortcuts made under the old name (FPV Lap Timer), so an upgrade doesn't leave a second one behind
+Type: files; Name: "{autoprograms}\FPV Lap Timer.lnk"
+Type: files; Name: "{autodesktop}\FPV Lap Timer.lnk"
+
 [Icons]
-Name: "{autoprograms}\FPV Lap Timer"; Filename: "{app}\FPVLapTimer.exe"
-Name: "{autodesktop}\FPV Lap Timer"; Filename: "{app}\FPVLapTimer.exe"; Tasks: desktopicon
+Name: "{autoprograms}\FPV DVR Lap Timer"; Filename: "{app}\FPVLapTimer.exe"
+Name: "{autodesktop}\FPV DVR Lap Timer"; Filename: "{app}\FPVLapTimer.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\FPVLapTimer.exe"; Description: "Launch FPV Lap Timer"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\FPVLapTimer.exe"; Description: "Launch FPV DVR Lap Timer"; Flags: nowait postinstall skipifsilent
 
 [Code]
 // Uninstall never touches the library or the videos. Offer to free the disk space used by the

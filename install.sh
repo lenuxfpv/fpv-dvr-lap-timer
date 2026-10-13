@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install FPV Lap Timer for the current user (Linux): checks dependencies and adds an
+# Install FPV DVR Lap Timer for the current user (Linux): checks dependencies and adds an
 # application-menu launcher pointing at THIS folder.
 #
 #   ./install.sh                 install (menu launcher)
@@ -115,7 +115,7 @@ cp "$DIR/fpv-lap-timer.svg" "$ICON_FILE"
 cat > "$DESKTOP_FILE" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=FPV Lap Timer
+Name=FPV DVR Lap Timer
 Comment=Mark gate passes in FPV footage and track lap times
 Exec="$(esc "$PYBIN")" "$(esc "$DIR/lap_timer.py")" %F
 Path=$DIR
@@ -135,4 +135,4 @@ fi
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" || true
 command -v desktop-file-validate >/dev/null 2>&1 && desktop-file-validate "$DESKTOP_FILE" || true
-say "Installed. Search for 'FPV Lap Timer' in your application menu (log out/in if the icon is missing)."
+say "Installed. Search for 'FPV DVR Lap Timer' in your application menu (log out/in if the icon is missing)."

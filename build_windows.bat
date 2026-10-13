@@ -10,7 +10,7 @@ set EXTRA=
 .buildvenv\Scripts\python make_version_file.py || goto :err
 if exist bin\ffprobe.exe set EXTRA=--add-binary "bin\ffprobe.exe;bin"
 if exist bin\ffmpeg.exe set EXTRA=%EXTRA% --add-binary "bin\ffmpeg.exe;bin"
-.buildvenv\Scripts\pyinstaller --noconfirm --clean --onefile --noconsole --name FPVLapTimer --icon fpv-lap-timer.ico --version-file version_info.txt %EXTRA% lap_timer.py || goto :err
+.buildvenv\Scripts\pyinstaller --noconfirm --clean --onefile --noconsole --name FPVLapTimer --icon fpv-lap-timer.ico --add-data "fpv-lap-timer.ico;." --version-file version_info.txt %EXTRA% lap_timer.py || goto :err
 echo.
 echo Done: dist\FPVLapTimer.exe
 pause

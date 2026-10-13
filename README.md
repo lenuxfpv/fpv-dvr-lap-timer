@@ -1,4 +1,4 @@
-# FPV Lap Timer
+# FPV DVR Lap Timer
 
 Version 1.5.0 (shown in the window title and **Help → About**).
 
@@ -72,15 +72,15 @@ you and prints the fix for your distro. Uninstalling leaves your library alone a
 
 **Easiest:** download **`FPVLapTimer-Setup.exe`** from the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases) and run it. No Python needed and no
-admin rights: it installs to `%LOCALAPPDATA%\Programs\FPV Lap Timer`, adds a Start Menu shortcut (and a
-Desktop one if you tick it) and an "FPV Lap Timer" entry in Settings > Apps, where you can uninstall it. The
+admin rights: it installs to `%LOCALAPPDATA%\Programs\FPV DVR Lap Timer`, adds a Start Menu shortcut (and a
+Desktop one if you tick it) and an "FPV DVR Lap Timer" entry in Settings > Apps, where you can uninstall it. The
 uninstaller asks whether to also delete the smooth-scrub copies; your library and videos are never touched.
 The release also has the bare `FPVLapTimer.exe` if you prefer a portable copy (no Apps entry). If ffmpeg is
 missing the app offers to install it (see below). The rest of this section covers running from source.
 
 Double-click **`install.bat`** (or run `install.bat -Desktop` for a Desktop shortcut too, and
 `install.bat -Uninstall` to remove them). It creates a private `.venv`, installs PyQt6, and adds a
-Start Menu shortcut and an "FPV Lap Timer" entry in Settings > Apps (Add/Remove Programs) that runs the uninstall. Needs Python 3.9+; if Python or ffmpeg is missing it offers to install them with winget (or run `winget install Python.Python.3.12` yourself). For frame rates install
+Start Menu shortcut and an "FPV DVR Lap Timer" entry in Settings > Apps (Add/Remove Programs) that runs the uninstall. Needs Python 3.9+; if Python or ffmpeg is missing it offers to install them with winget (or run `winget install Python.Python.3.12` yourself). For frame rates install
 ffmpeg (`winget install Gyan.FFmpeg`) or copy `ffmpeg.exe` and `ffprobe.exe` into a `bin` folder next
 to the app. Uninstalling removes the shortcuts and leaves your library alone; it asks whether to also delete the
 cached smooth copies (`%LOCALAPPDATA%\fpv-lap-timer`) to free disk space (`install.bat -Uninstall -ClearCache`
@@ -371,6 +371,13 @@ Makes a shareable video of your fastest N consecutive laps (N = the track's *Fas
 
 Releases and their downloads (`FPVLapTimer-Setup.exe` and `FPVLapTimer.exe`) are on the
 [Releases page](https://github.com/lenuxfpv/fpv-lap-timer/releases).
+
+### Unreleased
+- The app is now called **FPV DVR Lap Timer** (window title, About, shortcuts, the installer and the Settings >
+  Apps entry). File names, the library folder and settings are unchanged, so nothing needs migrating; the
+  installer replaces the old "FPV Lap Timer" shortcuts.
+- Fixed the missing icon in the window's title bar (and the taskbar when run from source): the icon is now set
+  by the app and bundled inside the exe.
 
 ### 1.5.0
 - **Fastest run is now per track:** each track can have its own run length (2-10) for the "fastest N"

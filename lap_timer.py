@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FPV Lap Timer - review drone footage, mark gate passes, track lap times.
+"""FPV DVR Lap Timer - review drone footage, mark gate passes, track lap times.
 
 Videos (.ts / .mp4 / others) stay where they are. The app remembers their paths
 and your gate marks in a single SQLite database in your user data folder.
@@ -19,7 +19,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, QTimer
 from PyQt6.QtCore import QDate, QEvent, QKeyCombination, QProcess, QSize, QRectF, QSettings, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QKeySequence, QPainter, QPen, QShortcut
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPen, QShortcut
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 VERSION = "1.5.0"
 AUTHOR = "LenuxFPV"
+APP_NAME = "FPV DVR Lap Timer"        # shown to users; file names, data folders and settings keep the old ids
 VIDEO_EXTS = {".ts", ".mp4", ".mov", ".mkv", ".m4v", ".avi"}
 
 
@@ -1842,7 +1843,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"FPV Lap Timer {VERSION}")
+        self.setWindowTitle(f"{APP_NAME} {VERSION}")
         self.resize(1400, 800)
         self.setAcceptDrops(True)
         self.lib = Library()
@@ -2133,8 +2134,8 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("Install &ffmpeg…").triggered.connect(self.offer_ffmpeg)
         help_menu.addAction("&About").triggered.connect(
-            lambda: QMessageBox.about(self, "About FPV Lap Timer",
-                                      f"FPV Lap Timer {VERSION}\n\nAuthor: {AUTHOR}"))
+            lambda: QMessageBox.about(self, f"About {APP_NAME}",
+                                      f"{APP_NAME} {VERSION}\n\nAuthor: {AUTHOR}"))
 
         self.apply_keys()
         self.refresh_library()
@@ -3301,8 +3302,28 @@ def install_error_handler(get_window):
     sys.excepthook = hook
 
 
+def app_icon():
+    """The window / title-bar / taskbar icon: fpv-lap-timer.ico, bundled next to the script or inside the
+    PyInstaller exe (sys._MEIPASS). An empty QIcon if it can't be found."""
+    for root in (Path(getattr(sys, "_MEIPASS", "") or "."), Path(__file__).resolve().parent):
+        for name in ("fpv-lap-timer.ico", "fpv-lap-timer.svg"):
+            path = root / name
+            if path.is_file():
+                icon = QIcon(str(path))
+                if not icon.isNull():
+                    return icon
+    return QIcon()
+
+
 def main():
+    if sys.platform == "win32":
+        try:        # own taskbar identity, so the taskbar groups/shows this app's icon even when run via Python
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("LenuxFPV.FPVDVRLapTimer")
+        except Exception:
+            pass
     app = QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
     win = MainWindow()
     install_error_handler(lambda: win)
     win.show()

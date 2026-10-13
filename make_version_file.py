@@ -27,11 +27,11 @@ VSVersionInfo(
       StringTable(
         '040904B0',
         [StringStruct('CompanyName', ''),
-         StringStruct('FileDescription', 'FPV Lap Timer'),
+         StringStruct('FileDescription', 'FPV DVR Lap Timer'),
          StringStruct('FileVersion', '{dotted}'),
          StringStruct('InternalName', 'FPVLapTimer'),
          StringStruct('OriginalFilename', 'FPVLapTimer.exe'),
-         StringStruct('ProductName', 'FPV Lap Timer'),
+         StringStruct('ProductName', 'FPV DVR Lap Timer'),
          StringStruct('ProductVersion', '{version}')])
     ]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])

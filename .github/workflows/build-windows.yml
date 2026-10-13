@@ -41,7 +41,7 @@ jobs:
       # Same options as build_windows.bat. ffmpeg is not bundled: the app finds one in
       # a "bin" folder next to the exe or on PATH.
       - name: Build exe
-        run: pyinstaller --noconfirm --clean --onefile --noconsole --name FPVLapTimer --icon fpv-lap-timer.ico --version-file version_info.txt lap_timer.py
+        run: pyinstaller --noconfirm --clean --onefile --noconsole --name FPVLapTimer --icon fpv-lap-timer.ico --add-data "fpv-lap-timer.ico;." --version-file version_info.txt lap_timer.py
 
       - name: Smoke test (exe starts and stays up)
         shell: pwsh
@@ -70,14 +70,14 @@ jobs:
           Start-Process dist\FPVLapTimer-Setup.exe -Wait -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$dir"
           if (-not (Test-Path "$dir\FPVLapTimer.exe")) { throw "installer did not copy FPVLapTimer.exe" }
           $uninst = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-          $entry = Get-ChildItem $uninst | Get-ItemProperty | Where-Object { $_.DisplayName -like "FPV Lap Timer*" }
+          $entry = Get-ChildItem $uninst | Get-ItemProperty | Where-Object { $_.DisplayName -like "FPV DVR Lap Timer*" }
           if (-not $entry) { throw "no Settings > Apps entry was created" }
           Write-Host "Apps entry: $($entry.DisplayName) $($entry.DisplayVersion)"
           if ($entry.DisplayVersion -ne "${{ steps.ver.outputs.version }}") { throw "Apps entry version $($entry.DisplayVersion) != ${{ steps.ver.outputs.version }}" }
           Start-Process "$dir\unins000.exe" -Wait -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
           for ($i = 0; $i -lt 30 -and (Test-Path "$dir\FPVLapTimer.exe"); $i++) { Start-Sleep -Seconds 1 }
           if (Test-Path "$dir\FPVLapTimer.exe") { throw "uninstall left FPVLapTimer.exe behind" }
-          if (Get-ChildItem $uninst | Get-ItemProperty | Where-Object { $_.DisplayName -like "FPV Lap Timer*" }) { throw "uninstall left the Apps entry behind" }
+          if (Get-ChildItem $uninst | Get-ItemProperty | Where-Object { $_.DisplayName -like "FPV DVR Lap Timer*" }) { throw "uninstall left the Apps entry behind" }
 
       - uses: actions/upload-artifact@v7
         with:

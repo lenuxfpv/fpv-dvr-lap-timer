@@ -1,20 +1,23 @@
-# Install FPV Lap Timer for the current user (Windows).
+# Install FPV DVR Lap Timer for the current user (Windows).
 #   install.bat                 install (Start Menu shortcut)
 #   install.bat -Desktop        also add a Desktop shortcut
 #   install.bat -Uninstall      remove the shortcuts (keeps your library and videos);
 #                               asks whether to also delete the smooth-scrub copies
 #   install.bat -Uninstall -ClearCache    same, and delete the copies without asking
-# Install also adds an "FPV Lap Timer" entry to Settings > Apps that runs the uninstall.
+# Install also adds an "FPV DVR Lap Timer" entry to Settings > Apps that runs the uninstall.
 param([switch]$Desktop, [switch]$Uninstall, [switch]$ClearCache)
 $ErrorActionPreference = "Stop"
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\FPV Lap Timer.lnk"
-$DesktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "FPV Lap Timer.lnk"
+$StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\FPV DVR Lap Timer.lnk"
+$DesktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "FPV DVR Lap Timer.lnk"
+# shortcuts from before the app was renamed (FPV Lap Timer)
+$OldLinks = @((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\FPV Lap Timer.lnk"),
+              (Join-Path ([Environment]::GetFolderPath("Desktop")) "FPV Lap Timer.lnk"))
 # Entry in Settings > Apps (appwiz.cpl). HKCU, so no admin rights are needed.
 $UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FPVLapTimer"
 
 if ($Uninstall) {
-    Remove-Item -Force -ErrorAction SilentlyContinue $StartMenu, $DesktopLnk
+    Remove-Item -Force -ErrorAction SilentlyContinue $StartMenu, $DesktopLnk, $OldLinks
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $UninstallKey
     Write-Host "Shortcuts removed. Your library ($env:APPDATA\fpv-lap-timer) and videos were not touched."
     $Cache = Join-Path $env:LOCALAPPDATA "fpv-lap-timer"
@@ -150,6 +153,7 @@ function New-Shortcut($path) {
     $lnk.Description = "Mark gate passes in FPV footage and track lap times"
     $lnk.Save()
 }
+Remove-Item -Force -ErrorAction SilentlyContinue $OldLinks
 New-Shortcut $StartMenu
 if ($Desktop) { New-Shortcut $DesktopLnk }
 
@@ -160,9 +164,9 @@ try {
     $kb = [int](((Get-ChildItem $Dir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum) / 1KB)
     New-Item -Path $UninstallKey -Force | Out-Null
     $props = @{
-        DisplayName     = "FPV Lap Timer"
+        DisplayName     = "FPV DVR Lap Timer"
         DisplayVersion  = $version
-        Publisher       = "FPV Lap Timer"
+        Publisher       = "LenuxFPV"
         InstallLocation = $Dir
         DisplayIcon     = (Join-Path $Dir "fpv-lap-timer.ico")
         UninstallString = 'cmd.exe /c ""' + (Join-Path $Dir "install.bat") + '" -Uninstall"'
@@ -175,4 +179,4 @@ try {
 }
 
 Write-Host ""
-Write-Host "Installed. Find 'FPV Lap Timer' in the Start Menu (uninstall from Settings > Apps)." -ForegroundColor Green
+Write-Host "Installed. Find 'FPV DVR Lap Timer' in the Start Menu (uninstall from Settings > Apps)." -ForegroundColor Green
