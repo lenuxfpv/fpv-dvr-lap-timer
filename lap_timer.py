@@ -2498,18 +2498,23 @@ class LibraryDelegate(QStyledItemDelegate):
         p.drawText(QRectF(x0, y, w - bw - 6, 22), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, shown)
 
         # --- rows 2-3: three stat columns (small caption above bold value)
-        colw = w / 3
         trophy = lambda v, on: v + (" 🏆" if on and v != "-" else "")
         cols = (("LAPS", f"{info['good']}/{info['total']}" if info["total"] else "-"),
                 ("FASTEST", trophy(fmt(info["best"]) if info["best"] is not None else "-", info.get("pb_lap"))),
                 (f"FASTEST {info.get('run') or run_length()}",
                  trophy(fmt(info["bestn"]) if info["bestn"] is not None else "-", info.get("pb_run"))))
-        for i, (cap, val) in enumerate(cols):
-            cx = x0 + i * colw
+        # column widths follow their content (caption or value, whichever is wider), sharing any spare width
+        cap_fm, val_fm = QFontMetrics(font(0.72)), QFontMetrics(font(1.05, bold=True))
+        need = [max(cap_fm.horizontalAdvance(c), val_fm.horizontalAdvance(v)) + 8 for c, v in cols]
+        spare = max(0.0, w - sum(need))
+        widths = [n + spare * n / sum(need) for n in need] if spare else [w * n / sum(need) for n in need]
+        cx = x0
+        for (cap, val), colw in zip(cols, widths):
             p.setFont(font(0.72)); p.setPen(muted)
             p.drawText(QRectF(cx, y + 24, colw, 13), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, cap)
             p.setFont(font(1.05, bold=True)); p.setPen(fg if val != "-" else muted)
             p.drawText(QRectF(cx, y + 36, colw, 19), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, val)
+            cx += colw
 
         # --- row 4: small file name (left) and date (right)
         p.setFont(font(0.78))
@@ -2738,7 +2743,10 @@ class MainWindow(QMainWindow):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for col in (0, 3):                      # Gate / Bad lap hug their content; the two time columns share the rest
+            hh.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
         self.table.cellClicked.connect(self.on_row_clicked)
         self.table.itemChanged.connect(self.on_item_changed)
@@ -2780,10 +2788,20 @@ class MainWindow(QMainWindow):
         self.refresh_run_box()
         rl.addWidget(self.stats_label)
 
-        split = QSplitter()
+        self.split = split = QSplitter()
+        right.setMinimumWidth(320)
         split.addWidget(left); split.addWidget(center); split.addWidget(right)
-        split.setSizes([310, 740, 360])
+        split.setSizes([380, 680, 340])
         self.setCentralWidget(split)
+        split.setChildrenCollapsible(False)
+        split.setStretchFactor(0, 0); split.setStretchFactor(1, 1); split.setStretchFactor(2, 0)   # only the video grows
+        for i in (1, 2):
+            split.handle(i).setEnabled(False)               # panel widths are fixed: no dragging the dividers
+            split.handle(i).setCursor(Qt.CursorShape.ArrowCursor)   # ...and no resize cursor hinting that you can
+        split.setHandleWidth(1)
+        geo = self.settings.value("window_geometry")
+        if geo:
+            self.restoreGeometry(geo)
 
         # --- shortcuts (every key is rebindable: View > Keyboard shortcuts…)
         handlers = {
@@ -3814,6 +3832,7 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, ev)
 
     def closeEvent(self, e):
+        self.settings.setValue("window_geometry", self.saveGeometry())
         self.build_queue.clear()
         build = self.build        # killing the process runs its finish handler, which clears self.build
         if build:
