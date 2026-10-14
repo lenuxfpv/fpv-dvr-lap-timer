@@ -1775,6 +1775,9 @@ class AddVideosDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(900, 560)
+        screen = self.screen().availableGeometry() if self.screen() else None
+        if screen:
+            self.setMaximumSize(screen.width(), screen.height())
         self.tracks = list(tracks)                  # track names offered in every dropdown
         # entries: [(path, shown name, size in bytes or None, already in the library)]
         rows = sorted(entries, key=lambda e: e[1].lower())
@@ -1827,7 +1830,10 @@ class AddVideosDialog(QDialog):
         cancel.clicked.connect(self.reject)
 
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel(intro or "Untick any file you don't want to add, and choose the track for each."))
+        intro_label = QLabel(intro or "Untick any file you don't want to add, and choose the track for each.")
+        intro_label.setWordWrap(True)                # a long folder path must not widen the window
+        intro_label.setMinimumWidth(200)
+        lay.addWidget(intro_label)
         lay.addWidget(self.table, 1)
         top = QHBoxLayout()
         top.addWidget(all_btn); top.addWidget(none_btn); top.addSpacing(20)
@@ -3319,15 +3325,22 @@ class MainWindow(QMainWindow):
             "(same name, size and date):\n\n" + "\n".join(lines) + more +
             "\n\nAdding it twice would count its laps twice in your stats.")
 
-    def remove_selected(self):
-        item = self.lib_list.currentItem()
-        if not item:
+    def remove_selected(self, vids=None):
+        """Remove the selected videos (and their lap marks) from the library; the video files are not deleted."""
+        paths = {v: p for v, p, _ in self.lib.videos()}
+        if vids is None:
+            vids = self.selected_vids()
+            if not vids and self.lib_list.currentItem():
+                vids = [self.lib_list.currentItem().data(Qt.ItemDataRole.UserRole)[0]]
+        vids = [v for v in vids if v in paths]
+        if not vids:
             return
-        vid, path, _ = item.data(Qt.ItemDataRole.UserRole)
-        if QMessageBox.question(self, "Remove", f"Remove '{vname(path)}' and its lap marks from the library?\n"
-                                "(The video file itself is not deleted.)") != QMessageBox.StandardButton.Yes:
+        what = f"'{vname(paths[vids[0]])}'" if len(vids) == 1 else f"{len(vids)} videos"
+        if QMessageBox.question(self, "Remove", f"Remove {what} and the lap marks from the library?\n"
+                                "(The video files themselves are not deleted.)") != QMessageBox.StandardButton.Yes:
             return
-        if vid == self.vid:
+        gone = set(vids)
+        if self.vid in gone:
             self.set_shuttle(0)
             self.player.stop()
             self.player.setSource(QUrl())
@@ -3335,16 +3348,18 @@ class MainWindow(QMainWindow):
             self.cur_path = None
             self.load_marks()
             self.update_proxy_ui()
-        self.build_queue = [q for q in self.build_queue if q[0] != vid]
-        if self.build and self.build["vid"] == vid:
+        self.build_queue = [q for q in self.build_queue if q[0] not in gone]
+        if self.build and self.build["vid"] in gone:
             self.build["cancelled"] = True
             self.build["proc"].kill()
-        mine = proxy_path(path)
-        shared = any(proxy_path(p) == mine for v, p, _ in self.lib.videos() if v != vid)   # a duplicate entry
-        if not shared:
-            mine.unlink(missing_ok=True)
-        self.lib.remove_video(vid)
+        for vid in vids:
+            mine = proxy_path(paths[vid])
+            shared = any(proxy_path(p) == mine for v, p, _ in self.lib.videos() if v not in gone)   # a duplicate entry
+            if not shared:
+                mine.unlink(missing_ok=True)
+            self.lib.remove_video(vid)
         self.refresh_library()
+        self.statusBar().showMessage(f"Removed {len(vids)} video(s) from the library", 4000)
 
     def key_for(self, kid):
         """The key bound to action `kid` (portable string, '' = none): the saved one, else the default."""
@@ -3437,6 +3452,9 @@ class MainWindow(QMainWindow):
         clear.triggered.connect(lambda: self.assign_track(vids, ""))
         menu.addSeparator()
         menu.addAction("Track && session date…").triggered.connect(self.edit_details)
+        menu.addSeparator()
+        menu.addAction("Remove from library" if len(vids) == 1 else f"Remove {len(vids)} videos from library"
+                       ).triggered.connect(lambda: self.remove_selected(vids))
         menu.addSeparator()
         copies = [v for v in vids if proxy_path(paths[v]).exists()]
         delete = menu.addAction("Delete smooth copy and lock" if len(vids) == 1
