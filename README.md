@@ -326,7 +326,8 @@ dialogs follow it.
   good laps in a row. A run never spans two videos.
 - **Delete mark** removes a mark (the two neighbouring laps merge).
 - **Move mark here** moves the selected mark to the current video position, for fixing a mark that
-  was placed slightly off.
+  was placed slightly off. Click the mark's row (the video jumps to it), step or scrub to the correct
+  frame, then press the button.
 
 ## Tracks and session dates
 

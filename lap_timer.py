@@ -4159,9 +4159,19 @@ class MainWindow(QMainWindow):
         if r is None:
             self.statusBar().showMessage("Select a mark in the table first", 3000)
             return
-        self.lib.move_mark(self.mark_rows[r][0], self.mark_time())
+        mid, old_t = self.mark_rows[r][0], self.mark_rows[r][1]
+        t = self.mark_time()
+        if abs(t - old_t) < 1:
+            self.statusBar().showMessage(
+                "The video is already at this mark - scrub to the new spot, then press Move mark here", 5000)
+            return
+        self.lib.move_mark(mid, t)
         self.load_marks()
+        new_row = next((i for i, m in enumerate(self.mark_rows) if m[0] == mid), None)
+        if new_row is not None:                              # marks re-sort by time, so follow the moved one
+            self.table.selectRow(new_row)
         self.refresh_library()
+        self.statusBar().showMessage(f"Mark moved to {fmt(t)}", 3000)
 
     def export_bestn_video(self):
         if self.vid is None:
