@@ -1280,9 +1280,15 @@ class ExportDialog(QDialog):
     def fit_to_screen(self):
         """Size the window to its contents, but never taller than the screen (the options scroll instead)."""
         screen = self.screen() or QApplication.primaryScreen()
-        avail = screen.availableGeometry().height() if screen else 700
+        geo = screen.availableGeometry() if screen else None
+        avail, avail_w = (geo.height(), geo.width()) if geo else (700, 1000)
         want = self.body.sizeHint().height() + 170         # + progress bar, status line and buttons
-        self.resize(max(self.width(), 660), max(300, min(want, int(avail * 0.9))))
+        # never narrower than the widest row needs (plus the scrollbar and margins), so no button is cut off
+        need_w = self.body.minimumSizeHint().width()
+        need_w += self.scroll.verticalScrollBar().sizeHint().width() + 40
+        need_w = min(need_w, avail_w)
+        self.setMinimumWidth(need_w)
+        self.resize(max(self.width(), need_w, 660), max(300, min(want, int(avail * 0.9))))
 
     def refresh_preview(self, *_):
         """Show or hide the preview, and (re)draw it a moment after the last change."""
