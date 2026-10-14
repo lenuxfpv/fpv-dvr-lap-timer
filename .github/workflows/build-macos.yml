@@ -10,6 +10,9 @@ permissions:
 
 jobs:
   build:
+    # Skipped on the public mirror: the release files are built here and copied across by the mirror workflow.
+    # Do not write this as `== 'lenuxfpv'`: the mirror rewrites that name to the public one.
+    if: github.repository_owner != 'lenuxfpv'
     runs-on: macos-latest     # Apple Silicon (arm64)
     steps:
       - uses: actions/checkout@v7
