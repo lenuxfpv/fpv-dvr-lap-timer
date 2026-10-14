@@ -2205,14 +2205,21 @@ class VideoView(QVideoWidget):
         e.accept()
 
 
+RUN_COLOR = "#42a5f5"                         # fastest run of N laps (blue, like the lap chart)
+LAP_COLOR = "#FFC107"                         # fastest single lap (gold)
+
+
 class MarkSlider(QSlider):
     """Seek bar that jumps to where you click and draws a tick for every gate mark."""
     def __init__(self):
         super().__init__(Qt.Orientation.Horizontal)
         self.marks = []
+        self.lap_span = None                  # (start_ms, end_ms) of the fastest lap
+        self.run_span = None                  # (start_ms, end_ms) of the fastest run of N laps
 
-    def set_marks(self, times):
+    def set_marks(self, times, lap_span=None, run_span=None):
         self.marks = list(times)
+        self.lap_span, self.run_span = lap_span, run_span
         self.update()
 
     def _groove(self):
@@ -2236,6 +2243,11 @@ class MarkSlider(QSlider):
             return
         p = QPainter(self)
         g = self._groove()
+        for span, col in ((self.run_span, RUN_COLOR), (self.lap_span, LAP_COLOR)):
+            if span:
+                x0, x1 = (int(g.x() + g.width() * min(t, self.maximum()) / self.maximum()) for t in span)
+                c = QColor(col); c.setAlpha(150)
+                p.fillRect(x0, g.top() - 4, max(x1 - x0, 1), g.height() + 8, c)
         p.setPen(QPen(QColor("#ff9800"), 2))
         for t in self.marks:
             x = int(g.x() + g.width() * min(t, self.maximum()) / self.maximum())
@@ -3973,11 +3985,16 @@ class MainWindow(QMainWindow):
         self._building = True
         self.mark_rows = self.lib.marks(self.vid) if self.vid else []
         self.table.setRowCount(len(self.mark_rows))
-        laps = []
+        laps = [(t - self.mark_rows[i][1], bool(bad)) for i, (_, t, bad) in enumerate(self.mark_rows[1:])]
+        n = self.video_run()
+        st = lap_stats(laps, n)
+        fast_row = st["best"][1] + 1 if st["best"] else None           # lap k sits on row k + 1
+        run_rows = range(st["bestn"][1] + 1, st["bestn"][1] + n + 1) if st["bestn"] else range(0)
+        times = [m[1] for m in self.mark_rows]
+        lap_span = (times[fast_row - 1], times[fast_row]) if fast_row else None
+        run_span = (times[run_rows[0] - 1], times[run_rows[-1]]) if run_rows else None
         for i, (mid, t, bad) in enumerate(self.mark_rows):
             lap = t - self.mark_rows[i - 1][1] if i else None
-            if lap is not None:
-                laps.append((lap, bool(bad)))
             cells = [QTableWidgetItem("Start" if i == 0 else f"Gate {i}"),
                      QTableWidgetItem(fmt(t)),
                      QTableWidgetItem(fmt(lap) if lap is not None else "")]
@@ -3994,9 +4011,16 @@ class MainWindow(QMainWindow):
                 if bad and i:
                     it.setForeground(QColor("#9e9e9e"))
                     f = it.font(); f.setStrikeOut(c == self.COL_LAP); it.setFont(f)
+                if i == fast_row:
+                    gold = QColor(LAP_COLOR); gold.setAlpha(110)
+                    it.setBackground(gold)
+                    f = it.font(); f.setBold(True); it.setFont(f)
+                elif i in run_rows:
+                    blue = QColor(RUN_COLOR); blue.setAlpha(70)
+                    it.setBackground(blue)
                 self.table.setItem(i, c, it)
         self._building = False
-        self.slider.set_marks([m[1] for m in self.mark_rows])
+        self.slider.set_marks(times, lap_span, run_span)
         self.update_stats(laps)
 
     def run_track(self):
