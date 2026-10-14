@@ -25,7 +25,7 @@ from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, 
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
-    QAbstractSpinBox, QApplication, QCheckBox, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
+    QAbstractSpinBox, QApplication, QCheckBox, QFrame, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
     QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QWidget,
@@ -836,7 +836,8 @@ def _filter_text(text):
 
 
 def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS,
-                      no_audio=False, audio_file=None, pictures=None, max_fps=None, decimals=3, preview_at=None, preview_w=640):
+                      no_audio=False, audio_file=None, pictures=None, max_fps=None, decimals=3, preview_at=None, preview_w=640,
+                      highlight_fastest=False):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
     Returns (argv, clip_ms): the argument list and the length of the output clip.
@@ -893,9 +894,10 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     en_end = f"gte(t,{s[n] - eps:.6f})"                    # after the last gate: hold the last lap
     parts.append(dt(f"LAP {n} / {n}", mar, y_lbl, fs_med, enable=en_end))
     parts.append(dt(fmt_overlay(win["lap_ms"][n - 1], decimals), mar, y_big, fs_big, enable=en_end))
+    best = win["lap_ms"].index(min(win["lap_ms"])) if highlight_fastest else -1   # the fastest of these laps (gold)
     for k in range(n):                                     # finished laps list, one line appears per lap
         parts.append(dt(f"LAP {k + 1}   {fmt_overlay(win['lap_ms'][k], decimals)}", mar, y_list + round(k * line_h), fs_list,
-                        enable=f"gte(t,{s[k + 1] - eps:.6f})"))
+                        color="#FFD54F" if k == best else "white", enable=f"gte(t,{s[k + 1] - eps:.6f})"))
     # top right: track name, then the running total of the N laps
     label = _filter_text(win.get("track") or "")
     if label:
@@ -944,6 +946,21 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     audio_enc = [] if (no_audio and not audio_file) else ["-c:a", "aac", "-b:a", "192k"]
     pic_in, video_args = [], ["-map", "0:v:0", "-vf", vf]
     pictures = [p for p in (pictures or []) if p.get("path")]
+    if preview_at is not None:                             # one frame: work out each picture's fade by hand, so it
+        at_s, shown = at_ms / 1000, []                     # is read once instead of looped (slow on a network drive)
+        for pic in pictures:
+            secs = float(pic.get("secs", EXPORT_PIC_S))
+            if pic.get("where") == "start":
+                t1 = min(clip_s, secs)
+                fade_d = max(0.05, min(0.5, t1))
+                alpha = 1.0 if at_s < t1 - fade_d else (max(0.0, t1 - at_s) / fade_d)
+            else:
+                t0 = max(0.0, clip_s - secs)
+                fade_d = max(0.05, min(0.5, clip_s - t0))
+                alpha = min(1.0, max(0.0, (at_s - t0) / fade_d))
+            if alpha > 0:
+                shown.append((pic, alpha))
+        pictures = [dict(pic, alpha=a) for pic, a in shown]
     if pictures:
         # pictures (e.g. the pilot's sticker) laid over the centre of the video. "end": fades in and stays for
         # the last `secs` seconds; "start": shown from the first frame, fades out after `secs` seconds. Never
@@ -954,7 +971,9 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             idx, secs = first + k, float(pic.get("secs", EXPORT_PIC_S))
             th = max(16, round(H * float(pic.get("pct", EXPORT_PIC_PCT)) / 100))
             max_w = round(W * 0.9)
-            if pic.get("where") == "start":
+            if preview_at is not None:
+                fade, en = f"colorchannelmixer=aa={pic['alpha']:.3f}", "1"
+            elif pic.get("where") == "start":
                 t0, t1 = 0.0, min(clip_s, secs)
                 fade_d = max(0.05, min(0.5, t1))
                 fade = f"fade=t=out:st={t1 - fade_d:.3f}:d={fade_d:.3f}:alpha=1"
@@ -967,9 +986,10 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             parts_g.append(f"[{idx}:v]format=rgba,scale=w='min(iw,min({max_w},iw*{th}/ih))':h=-2:flags=lanczos:"
                            f"out_color_matrix=bt709:out_range=tv,format=yuva420p,{fade}[pic{k}]")
             out_label = f"v{k}"
-            parts_g.append(f"[{last}][pic{k}]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1:enable='{en}'[{out_label}]")
+            ending = "eof_action=repeat" if preview_at is not None else "shortest=1"
+            parts_g.append(f"[{last}][pic{k}]overlay=x=(W-w)/2:y=(H-h)/2:{ending}:enable='{en}'[{out_label}]")
             last = out_label
-            pic_in += ["-loop", "1", "-framerate", "30", "-i", str(pic["path"])]
+            pic_in += ([] if preview_at is not None else ["-loop", "1", "-framerate", "30"]) + ["-i", str(pic["path"])]
         parts_g.append(",".join([f"[{last}]format=yuv420p"] + lower) + "[v]")
         video_args = ["-filter_complex", ";".join(parts_g), "-map", "[v]"]
     if preview_at is not None:
@@ -1082,7 +1102,6 @@ class ExportDialog(QDialog):
         self.win = win
         n = len(win["lap_ms"])
         self.setWindowTitle(f"Export fastest {n} laps as video")
-        self.resize(640, 300)
         self.proc = None
         self.final = None
         self.part = None
@@ -1172,7 +1191,7 @@ class ExportDialog(QDialog):
         self.preview_on = QCheckBox("Show preview")
         self.preview_on.setToolTip("Draw one frame of the finished video here, so you can see the overlay before exporting. "
                                    "Turn it off if it slows this window down.")
-        self.preview_on.setChecked(self.settings.value("export_preview", True, type=bool))
+        self.preview_on.setChecked(self.settings.value("export_preview_on", False, type=bool))
         self.preview_at = QComboBox()
         for label, key in (("End of the clip", "end"), ("During the last lap", "middle"), ("Start of the clip", "start")):
             self.preview_at.addItem(label, key)
@@ -1188,6 +1207,9 @@ class ExportDialog(QDialog):
         self.preview_timer.setSingleShot(True)
         self.preview_timer.setInterval(400)                # wait for the changes to settle before drawing
         self.preview_timer.timeout.connect(self.render_preview)
+        self.highlight = QCheckBox("Highlight fastest lap")
+        self.highlight.setToolTip("Show the fastest of the exported laps in gold in the finished-laps list")
+        self.highlight.setChecked(self.settings.value("export_highlight", False, type=bool))
         self.reset_pad = QPushButton("Reset padding")
         self.reset_pad.setToolTip(f"Back to the defaults: {EXPORT_LEAD_MS / 1000:g} s before, "
                                   f"{EXPORT_TAIL_MS / 1000:g} s after")
@@ -1198,7 +1220,17 @@ class ExportDialog(QDialog):
         self.cancel = QPushButton("Cancel")
         self.cancel.clicked.connect(self.on_cancel)
 
-        lay = QVBoxLayout(self)
+        # the options scroll if the screen is too small for them, so the preview never overlaps the fields
+        outer = QVBoxLayout(self)
+        self.body = QWidget()
+        lay = QVBoxLayout(self.body)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setWidget(self.body)
+        outer.addWidget(self.scroll, 1)
         lay.addWidget(summary)
         prow = QHBoxLayout()
         prow.addWidget(self.preview_on); prow.addWidget(self.preview_at); prow.addStretch(1)
@@ -1215,7 +1247,8 @@ class ExportDialog(QDialog):
         trow.addStretch(1)
         lay.addLayout(trow)
         frow = QHBoxLayout(); frow.addWidget(QLabel("Frame rate:")); frow.addWidget(self.fps_combo)
-        frow.addSpacing(16); frow.addWidget(QLabel("Timer decimals:")); frow.addWidget(self.dec_combo); frow.addStretch(1)
+        frow.addSpacing(16); frow.addWidget(QLabel("Timer decimals:")); frow.addWidget(self.dec_combo)
+        frow.addSpacing(16); frow.addWidget(self.highlight); frow.addStretch(1)
         lay.addLayout(frow)
         lay.addWidget(self.no_audio)
         arow = QHBoxLayout()
@@ -1226,20 +1259,30 @@ class ExportDialog(QDialog):
         for pic in (self.start_pic, self.end_pic):
             lay.addLayout(pic.row1)
             lay.addLayout(pic.row2)
-        lay.addWidget(self.bar)
-        lay.addWidget(self.status)
-        lay.addWidget(self.folder_link)
+        lay.addStretch(1)
+        outer.addWidget(self.bar)
+        outer.addWidget(self.status)
+        outer.addWidget(self.folder_link)
         btns = QHBoxLayout(); btns.addStretch(1); btns.addWidget(self.cancel); btns.addWidget(self.go)
-        lay.addLayout(btns)
+        outer.addLayout(btns)
+        self.fit_to_screen()
         for w in (self.lead_spin, self.tail_spin, self.start_pic.secs, self.start_pic.size,
                   self.end_pic.secs, self.end_pic.size):
             w.valueChanged.connect(self.refresh_preview)
         for w in (self.start_pic.edit, self.end_pic.edit):
             w.textChanged.connect(self.refresh_preview)
         self.dec_combo.currentIndexChanged.connect(self.refresh_preview)
+        self.highlight.toggled.connect(self.refresh_preview)
         self.preview_at.currentIndexChanged.connect(self.refresh_preview)
         self.preview_on.toggled.connect(self.refresh_preview)
         self.refresh_preview()
+
+    def fit_to_screen(self):
+        """Size the window to its contents, but never taller than the screen (the options scroll instead)."""
+        screen = self.screen() or QApplication.primaryScreen()
+        avail = screen.availableGeometry().height() if screen else 700
+        want = self.body.sizeHint().height() + 170         # + progress bar, status line and buttons
+        self.resize(max(self.width(), 660), max(300, min(want, int(avail * 0.9))))
 
     def refresh_preview(self, *_):
         """Show or hide the preview, and (re)draw it a moment after the last change."""
@@ -1249,15 +1292,16 @@ class ExportDialog(QDialog):
         if not on:
             self.preview_timer.stop()
             self.stop_preview()
-            self.adjustSize()
+            self.fit_to_screen()
             return
+        self.fit_to_screen()
         self.preview_timer.start()
 
     def stop_preview(self):
-        if self.preview_proc and self.preview_proc.state() != QProcess.ProcessState.NotRunning:
-            self.preview_proc.kill()
-            self.preview_proc.waitForFinished(2000)
-        self.preview_proc = None
+        proc, self.preview_proc = self.preview_proc, None   # cleared first: preview_done ignores a replaced render
+        if proc and proc.state() != QProcess.ProcessState.NotRunning:
+            proc.kill()
+            proc.waitForFinished(2000)
 
     def preview_message(self, text):
         self.preview_img.setPixmap(QPixmap())
@@ -1274,7 +1318,9 @@ class ExportDialog(QDialog):
         if not os.path.exists(self.win["path"]):
             self.preview_message("The source video can't be found.")
             return
-        if self.preview_info is None:
+        if self.preview_info is None:                      # first time: ffprobe can take a while on a slow drive
+            self.preview_message("Drawing preview…")
+            QApplication.processEvents()
             self.preview_info = probe_stream(self.win["path"])
         pics = [pic.spec(where) for pic, where in ((self.start_pic, "start"), (self.end_pic, "end"))
                 if pic.path() and os.path.exists(pic.path())]
@@ -1292,7 +1338,8 @@ class ExportDialog(QDialog):
                 "middle": (lead + (m[n - 1] + m[n]) / 2 - m[0]) / 1000}[at]     # halfway through the last lap
         argv, _ = build_export_args(self.win, self.win["path"], self.preview_file, font, self.preview_info,
                                     tail_ms=tail_ms, lead_ms=lead_ms, no_audio=True, pictures=pics,
-                                    decimals=self.dec_combo.currentData(), preview_at=when, preview_w=PREVIEW_W)
+                                    decimals=self.dec_combo.currentData(), preview_at=when, preview_w=PREVIEW_W,
+                                    highlight_fastest=self.highlight.isChecked())
         self.stop_preview()
         self.preview_proc = QProcess(self)
         hide_console(self.preview_proc)
@@ -1384,7 +1431,8 @@ class ExportDialog(QDialog):
             self.settings.setValue("export_audio", self.audio_path or "")
         self.start_pic.save()
         self.end_pic.save()
-        self.settings.setValue("export_preview", self.preview_on.isChecked())
+        self.settings.setValue("export_preview_on", self.preview_on.isChecked())
+        self.settings.setValue("export_highlight", self.highlight.isChecked())
         self.settings.setValue("export_decimals", self.dec_combo.currentData())
         self.settings.setValue("export_max_fps", self.fps_combo.currentData() or 0)
         self.settings.setValue("export_lead_s", self.lead_spin.value())
@@ -1401,6 +1449,7 @@ class ExportDialog(QDialog):
                                                audio_file=self.audio_path,
                                                max_fps=self.fps_combo.currentData(),
                                                decimals=self.dec_combo.currentData(),
+                                               highlight_fastest=self.highlight.isChecked(),
                                                pictures=[self.start_pic.spec("start"), self.end_pic.spec("end")])
         self.buf = ""
         self.proc = QProcess(self)
@@ -1419,6 +1468,7 @@ class ExportDialog(QDialog):
         self.preview_timer.stop()
         self.stop_preview()
         self.dec_combo.setEnabled(False)
+        self.highlight.setEnabled(False)
         for w in (self.audio_edit, self.audio_browse, self.audio_clear):
             w.setEnabled(False)
         self.start_pic.set_busy(True)
