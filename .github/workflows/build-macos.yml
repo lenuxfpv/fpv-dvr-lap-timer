@@ -1,0 +1,113 @@
+name: Build macOS app
+
+on:
+  workflow_dispatch:          # run by hand from the Actions tab
+  push:
+    tags: ["v*"]              # e.g. vX.Y.Z (must match VERSION); attaches the .dmg to the release
+
+permissions:
+  contents: write             # needed to attach the .dmg to a release
+
+jobs:
+  build:
+    runs-on: macos-latest     # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Read version
+        id: ver
+        run: echo "version=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' lap_timer.py)" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag matches VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if [ "${GITHUB_REF_NAME#v}" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION ${{ steps.ver.outputs.version }} in lap_timer.py"
+            exit 1
+          fi
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip PyQt6 pyinstaller pillow
+
+      # macOS wants an .icns; build one from the Windows .ico (its largest size is 256 px).
+      - name: Make the app icon
+        run: |
+          python - <<'PY'
+          from PIL import Image
+          import pathlib
+          src = Image.open("fpv-dvr-lap-timer.ico")
+          src.size = (256, 256)
+          big = src.convert("RGBA")
+          d = pathlib.Path("icon.iconset"); d.mkdir()
+          for name, px in (("16x16", 16), ("16x16@2x", 32), ("32x32", 32), ("32x32@2x", 64), ("128x128", 128),
+                           ("128x128@2x", 256), ("256x256", 256)):
+              big.resize((px, px), Image.LANCZOS).save(d / f"icon_{name}.png")
+          PY
+          iconutil -c icns icon.iconset -o fpv-dvr-lap-timer.icns
+
+      # ffmpeg is not bundled (it is GPL when built with libx264): the app finds one from Homebrew or on PATH.
+      - name: Build app
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name FPVDVRLapTimer \
+            --icon fpv-dvr-lap-timer.icns --osx-bundle-identifier io.github.fpv-dvr-lap-timer \
+            --add-data "fpv-dvr-lap-timer.ico:." lap_timer.py
+          plist=dist/FPVDVRLapTimer.app/Contents/Info.plist
+          plutil -replace CFBundleShortVersionString -string "${{ steps.ver.outputs.version }}" "$plist"
+          plutil -replace CFBundleVersion -string "${{ steps.ver.outputs.version }}" "$plist"
+          plutil -replace CFBundleName -string "FPV DVR Lap Timer" "$plist"
+          plutil -replace CFBundleDisplayName -string "FPV DVR Lap Timer" "$plist"
+          # editing the plist breaks the signature PyInstaller added, so sign again (ad hoc: no Apple account)
+          codesign --force --deep --sign - dist/FPVDVRLapTimer.app
+          codesign --verify --deep --strict dist/FPVDVRLapTimer.app
+
+      - name: Smoke test (app starts and stays up)
+        run: |
+          export FPV_LAP_TIMER_DB="$RUNNER_TEMP/smoke.db" QT_QPA_PLATFORM=offscreen
+          dist/FPVDVRLapTimer.app/Contents/MacOS/FPVDVRLapTimer &
+          pid=$!
+          sleep 15
+          if ! kill -0 "$pid" 2>/dev/null; then echo "app exited early"; exit 1; fi
+          kill "$pid"
+          v=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" dist/FPVDVRLapTimer.app/Contents/Info.plist)
+          echo "Bundle version: $v"
+          [ "$v" = "${{ steps.ver.outputs.version }}" ]
+
+      - name: Build disk image
+        run: |
+          mkdir stage
+          cp -R dist/FPVDVRLapTimer.app "stage/FPV DVR Lap Timer.app"
+          ln -s /Applications stage/Applications
+          hdiutil create -volname "FPV DVR Lap Timer" -srcfolder stage -ov -format UDZO dist/FPVDVRLapTimer-macOS.dmg
+
+      - name: Test disk image (mounts and holds the app)
+        run: |
+          mnt=$(hdiutil attach dist/FPVDVRLapTimer-macOS.dmg -nobrowse -readonly | tail -1 | cut -f3-)
+          ls "$mnt"
+          test -x "$mnt/FPV DVR Lap Timer.app/Contents/MacOS/FPVDVRLapTimer"
+          hdiutil detach "$mnt"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FPVDVRLapTimer-${{ steps.ver.outputs.version }}-macos
+          path: dist/FPVDVRLapTimer-macOS.dmg
+
+      # The Windows workflow creates the release from the same tag; wait for it, then add the .dmg.
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 60); do
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" dist/FPVDVRLapTimer-macOS.dmg --clobber
+              exit 0
+            fi
+            echo "Waiting for release $GITHUB_REF_NAME ($i/60) ..."
+            sleep 30
+          done
+          echo "Release $GITHUB_REF_NAME never appeared (did the Windows build fail?)"
+          exit 1

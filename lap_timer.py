@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, QTimer
-from PyQt6.QtCore import QDate, QEvent, QKeyCombination, QProcess, QSize, QRectF, QSettings, pyqtSignal
+from PyQt6.QtCore import QDate, QEvent, QKeyCombination, QProcess, QProcessEnvironment, QSize, QRectF, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPen, QShortcut
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -119,7 +119,7 @@ def find_tool(name):
     found = shutil.which(name)
     if found:
         return found
-    for d in _winget_tool_dirs():
+    for d in _winget_tool_dirs() + _mac_tool_dirs():
         cand = d / exe
         if cand.is_file():
             return str(cand)
@@ -141,6 +141,12 @@ def _winget_tool_dirs():
     except OSError:
         pass
     return dirs
+
+
+def _mac_tool_dirs():
+    """macOS: Homebrew's folders. An app opened from Finder doesn't get the shell's PATH, so ffmpeg
+    installed with `brew install ffmpeg` would not be found otherwise."""
+    return [Path("/opt/homebrew/bin"), Path("/usr/local/bin")] if sys.platform == "darwin" else []
 
 
 def file_identity(path):
@@ -714,6 +720,19 @@ def ffmpeg_install_hint():
         return "brew install ffmpeg"
     return ("your package manager's ffmpeg package, e.g.  sudo apt install ffmpeg  or  sudo pacman -S ffmpeg"
             "  (Fedora: enable RPM Fusion, then  sudo dnf install ffmpeg)")
+
+
+def find_brew():
+    """macOS: path to Homebrew's `brew`, or None. (An app opened from Finder doesn't see the shell's PATH.)"""
+    if sys.platform != "darwin":
+        return None
+    found = shutil.which("brew")
+    if found:
+        return found
+    return next((str(p) for p in map(Path, ("/opt/homebrew/bin/brew", "/usr/local/bin/brew")) if p.is_file()), None)
+
+
+HOMEBREW_URL = "https://brew.sh"
 
 
 def x264_help():
@@ -2609,12 +2628,19 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "ffmpeg", f"ffmpeg is installed:\n{find_tool('ffmpeg')}")
             return
         can_winget = sys.platform == "win32" and shutil.which("winget") is not None
+        brew = find_brew()
         hint = ffmpeg_install_hint()
         text = (f"{' and '.join(missing)} {'was' if len(missing) == 1 else 'were'} not found. The app runs without "
                 f"{'it' if len(missing) == 1 else 'them'}, but it can't build smooth-scrub copies (scrubbing only jumps between keyframes), it assumes "
                 "30 fps for frame-stepping, and it can't export videos.")
         if can_winget:
             text += "\n\nInstall ffmpeg now with winget? It is a free download and takes about a minute."
+        elif brew:
+            text += ("\n\nHomebrew is installed, so the app can run  brew install ffmpeg  for you. "
+                     "It can take several minutes.")
+        elif sys.platform == "darwin":
+            text += (f"\n\nThe easiest way to install ffmpeg on a Mac is Homebrew ({HOMEBREW_URL}). Install Homebrew "
+                     "first, then come back to Help → Install ffmpeg… (or run  brew install ffmpeg  in Terminal).")
         elif hint:
             text += f"\n\nTo install it, use {hint}, then restart the app."
         else:
@@ -2624,8 +2650,13 @@ class MainWindow(QMainWindow):
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle("ffmpeg needed")
         box.setText(text)
-        install = box.addButton("Install with winget", QMessageBox.ButtonRole.AcceptRole) if can_winget else None
-        web = box.addButton("Open download page", QMessageBox.ButtonRole.ActionRole)
+        install = None
+        if can_winget:
+            install = box.addButton("Install with winget", QMessageBox.ButtonRole.AcceptRole)
+        elif brew:
+            install = box.addButton("Install with Homebrew", QMessageBox.ButtonRole.AcceptRole)
+        no_brew = sys.platform == "darwin" and not brew
+        web = box.addButton("Get Homebrew" if no_brew else "Open download page", QMessageBox.ButtonRole.ActionRole)
         box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
         never = QCheckBox("Don't ask again at start-up (Help → Install ffmpeg… still works)")
         box.setCheckBox(never)
@@ -2633,12 +2664,23 @@ class MainWindow(QMainWindow):
         self.settings.setValue("ffmpeg_prompt_off", never.isChecked())
         clicked = box.clickedButton()
         if install is not None and clicked is install:
-            self.install_ffmpeg_winget()
+            self.install_ffmpeg(brew)
         elif clicked is web:
-            QDesktopServices.openUrl(QUrl(FFMPEG_DOWNLOAD_URL))
+            QDesktopServices.openUrl(QUrl(HOMEBREW_URL if no_brew else FFMPEG_DOWNLOAD_URL))
 
-    def install_ffmpeg_winget(self):
-        progress = QProgressDialog("Installing ffmpeg with winget…\nThis can take a minute.", "", 0, 0, self)
+    def install_ffmpeg(self, brew=None):
+        """Install ffmpeg with winget (Windows) or the given Homebrew `brew` (macOS), showing a busy dialog."""
+        if brew:
+            tool, program, args = "Homebrew", brew, ["install", "ffmpeg"]
+            how = "This can take several minutes."
+            manual = "Try running  brew install ffmpeg  in Terminal."
+        else:
+            tool, program = "winget", "winget"
+            args = ["install", "--id", "Gyan.FFmpeg", "-e", "--accept-package-agreements", "--accept-source-agreements"]
+            how = "This can take a minute."
+            manual = ("Try running  winget install Gyan.FFmpeg  in a terminal, or download ffmpeg yourself and put "
+                      "ffmpeg.exe and ffprobe.exe in a 'bin' folder next to the app.")
+        progress = QProgressDialog(f"Installing ffmpeg with {tool}…\n{how}", "", 0, 0, self)
         progress.setWindowTitle("Installing ffmpeg")
         progress.setCancelButton(None)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
@@ -2660,10 +2702,9 @@ class MainWindow(QMainWindow):
             if not self.missing_ffmpeg_tools():
                 self.statusBar().showMessage("ffmpeg installed", 6000)
             else:
-                QMessageBox.warning(self, "ffmpeg", "winget could not install ffmpeg"
+                QMessageBox.warning(self, "ffmpeg", f"{tool} could not install ffmpeg"
                                     + (f" (exit code {code})" if code else "")
-                                    + ".\n\nTry running  winget install Gyan.FFmpeg  in a terminal, or download "
-                                      "ffmpeg yourself and put ffmpeg.exe and ffprobe.exe in a 'bin' folder next to the app."
+                                    + f".\n\n{manual}"
                                     + (f"\n\n{output[-600:]}" if output else ""))
 
         def failed(_err):
@@ -2672,8 +2713,11 @@ class MainWindow(QMainWindow):
 
         proc.finished.connect(finished)
         proc.errorOccurred.connect(failed)
-        proc.start("winget", ["install", "--id", "Gyan.FFmpeg", "-e",
-                              "--accept-package-agreements", "--accept-source-agreements"])
+        if brew:
+            env = QProcessEnvironment.systemEnvironment()
+            env.insert("HOMEBREW_NO_ENV_HINTS", "1")
+            proc.setProcessEnvironment(env)
+        proc.start(program, args)
         progress.show()
 
     def refresh_ffmpeg_state(self):

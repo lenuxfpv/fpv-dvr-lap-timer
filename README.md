@@ -43,6 +43,7 @@ It runs on Windows (installer or portable exe) and Linux, and reads `.ts`, `.mp4
 | You use | Easiest route |
 |---|---|
 | Windows | Download **`FPVDVRLapTimer-Setup.exe`** from the [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases). No Python needed. |
+| macOS (Apple Silicon, **untested**) | Download **`FPVDVRLapTimer-macOS.dmg`** from the [Releases page](https://github.com/lenuxfpv/fpv-dvr-lap-timer/releases), open it and drag the app to Applications. See *macOS* below. |
 | Linux | Run `./install.sh` from the project folder (needs Python 3.9+). |
 | Either, from source | `python3 lap_timer.py` with Python 3.9+ and PyQt6 installed. |
 
@@ -72,6 +73,25 @@ python3 lap_timer.py flight1.ts flight2.mp4   # open and add these videos to the
 ```
 
 You can also drag video files or folders onto the window.
+
+### macOS
+
+**The macOS version is untested.** It is built automatically but nobody has run it on a Mac yet, so expect rough edges
+and please report problems. Open the `.dmg` and drag **FPV DVR Lap Timer** into Applications. It is built for Apple
+Silicon (M1 and later).
+
+**"Can't be opened because the developer can't be verified".** The app isn't signed with an Apple Developer
+certificate (that costs money every year), so Gatekeeper blocks the first launch. Right-click the app, choose
+**Open**, then **Open** again. You only need to do this once. If macOS still refuses, run
+`xattr -dr com.apple.quarantine "/Applications/FPV DVR Lap Timer.app"` in Terminal.
+
+**ffmpeg.** It isn't bundled. If it can't be found when the app starts, the app offers to run `brew install ffmpeg`
+for you (**Help → Install ffmpeg…** any time; without [Homebrew](https://brew.sh) it points you to the Homebrew site
+first). You can also run that command yourself. The app looks in
+`/opt/homebrew/bin` and `/usr/local/bin`, so it finds it even when opened from Finder. Homebrew's ffmpeg includes
+libx264. Your library is stored in `~/Library/Application Support/fpv-dvr-lap-timer/`.
+
+Intel Macs: run from source (`python3 lap_timer.py`, with PyQt6 installed).
 
 ### Windows
 
