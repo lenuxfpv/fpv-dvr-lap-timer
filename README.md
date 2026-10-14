@@ -421,6 +421,10 @@ with a lap timer drawn on it.
   plays up to 60 fps, so for a 90 fps video choose *Frame rate: 60 fps* in the export window. The
   timer is drawn first, so it stays exact. Videos already at or below the chosen rate are not changed, and the choice
   is remembered. *Original* keeps the recorded rate.
+- **Preview:** the export window draws one frame of the finished video (by default the end of the clip, or choose
+  during the last lap or the start), so you can check the overlay, timer decimals, padding and pictures before you
+  export. It uses the same ffmpeg filters as the export, so it matches. Untick *Show preview* to turn it off if it
+  slows the window down; the choice is remembered.
 - **Timer decimals:** the lap timer on the video shows 3 decimals (25.737) by default. Choose *Timer decimals* 2, 1 or 0
   for a cleaner look; extra digits are cut off, not rounded, and the choice is remembered.
 

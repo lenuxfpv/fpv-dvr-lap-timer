@@ -14,13 +14,14 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, QTimer
 from PyQt6.QtCore import QDate, QEvent, QKeyCombination, QProcess, QProcessEnvironment, QSize, QRectF, QSettings, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPen, QShortcut
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
@@ -835,10 +836,12 @@ def _filter_text(text):
 
 
 def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS,
-                      no_audio=False, audio_file=None, pictures=None, max_fps=None, decimals=3):
+                      no_audio=False, audio_file=None, pictures=None, max_fps=None, decimals=3, preview_at=None, preview_w=640):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
-    Returns (argv, clip_ms): the argument list and the length of the output clip."""
+    Returns (argv, clip_ms): the argument list and the length of the output clip.
+    With preview_at (seconds into the clip) it instead renders that one frame, scaled to preview_w pixels wide,
+    as a PNG to `out`: the same filters as the export, so the picture matches it exactly."""
     m = win["marks_ms"]
     n = len(win["lap_ms"])                                 # how many laps the window holds
     lead = min(lead_ms, m[0])                              # can't start before the video does
@@ -911,13 +914,19 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
                f"in_color_matrix={matrix}:out_color_matrix=bt709,format=yuv420p")
     # Seeking inside .ts files can land a keyframe late, so only seek roughly (15 s early, always before the
     # clip) and cut to the exact frame with trim; setpts then makes the overlay clock start at 0.
-    seek_ms = max(0, c0 - EXPORT_SEEK_MARGIN_MS)
-    skip = (c0 - seek_ms) / 1000.0
-    cut = f"trim=start={skip:.6f}:duration={clip_ms / 1000:.6f},setpts=PTS-STARTPTS"
+    at_ms = 0 if preview_at is None else int(max(0, min(preview_at, clip_ms / 1000 - 0.05)) * 1000)
+    seek_ms = max(0, c0 + at_ms - EXPORT_SEEK_MARGIN_MS)
+    skip = (c0 + at_ms - seek_ms) / 1000.0
+    if preview_at is None:
+        cut = f"trim=start={skip:.6f}:duration={clip_ms / 1000:.6f},setpts=PTS-STARTPTS"
+    else:                                                  # a short piece, with the clock set to its place in the clip
+        cut = f"trim=start={skip:.6f}:duration=0.5,setpts=PTS-STARTPTS+{at_ms / 1000:.6f}/TB"
     tags = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
     # Lower frame rate (e.g. 90 -> 60 for YouTube): done after the overlay is drawn, so the timer stays exact.
     # Never raises the rate: a video already at or below the limit is left alone.
     lower = [f"fps={max_fps:g}"] if max_fps and info.get("fps", 0) > max_fps + 0.01 else []
+    if preview_at is not None:
+        lower = [f"scale={preview_w}:-2:flags=bicubic"]
     vf = ",".join([cut, convert] + parts + [tags, "format=yuv420p"] + lower)
     vf_base = ",".join([cut, convert] + parts + [tags, "format=yuv420p"])
     clip_s = clip_ms / 1000
@@ -963,6 +972,9 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             pic_in += ["-loop", "1", "-framerate", "30", "-i", str(pic["path"])]
         parts_g.append(",".join([f"[{last}]format=yuv420p"] + lower) + "[v]")
         video_args = ["-filter_complex", ";".join(parts_g), "-map", "[v]"]
+    if preview_at is not None:
+        return ["-y", "-loglevel", "error", "-nostats", "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src), *pic_in,
+                *video_args, "-an", "-frames:v", "1", "-f", "image2", "-c:v", "png", str(out)], clip_ms
     argv = ["-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
             "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src),
             *(["-i", str(audio_file)] if audio_file else []),
@@ -974,6 +986,9 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
             *audio_enc, "-movflags", "+faststart", str(out)]
     return argv, clip_ms
+
+
+PREVIEW_W = 480                                           # width of the overlay preview in the export window
 
 
 class PictureRow:
@@ -1154,6 +1169,25 @@ class ExportDialog(QDialog):
         for d, label in ((3, "3 (25.737)"), (2, "2 (25.74)"), (1, "1 (25.7)"), (0, "0 (25)")):
             self.dec_combo.addItem(label, d)
         self.dec_combo.setCurrentIndex(max(0, self.dec_combo.findData(self.settings.value("export_decimals", 3, type=int))))
+        self.preview_on = QCheckBox("Show preview")
+        self.preview_on.setToolTip("Draw one frame of the finished video here, so you can see the overlay before exporting. "
+                                   "Turn it off if it slows this window down.")
+        self.preview_on.setChecked(self.settings.value("export_preview", True, type=bool))
+        self.preview_at = QComboBox()
+        for label, key in (("End of the clip", "end"), ("During the last lap", "middle"), ("Start of the clip", "start")):
+            self.preview_at.addItem(label, key)
+        self.preview_img = QLabel()
+        self.preview_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_img.setMinimumSize(PREVIEW_W, PREVIEW_W * 9 // 16)
+        self.preview_img.setStyleSheet("background:#202020; color:#bbbbbb")
+        self.preview_img.setWordWrap(True)
+        self.preview_proc = None
+        self.preview_file = None
+        self.preview_info = None
+        self.preview_timer = QTimer(self)
+        self.preview_timer.setSingleShot(True)
+        self.preview_timer.setInterval(400)                # wait for the changes to settle before drawing
+        self.preview_timer.timeout.connect(self.render_preview)
         self.reset_pad = QPushButton("Reset padding")
         self.reset_pad.setToolTip(f"Back to the defaults: {EXPORT_LEAD_MS / 1000:g} s before, "
                                   f"{EXPORT_TAIL_MS / 1000:g} s after")
@@ -1166,6 +1200,10 @@ class ExportDialog(QDialog):
 
         lay = QVBoxLayout(self)
         lay.addWidget(summary)
+        prow = QHBoxLayout()
+        prow.addWidget(self.preview_on); prow.addWidget(self.preview_at); prow.addStretch(1)
+        lay.addLayout(prow)
+        lay.addWidget(self.preview_img, 0, Qt.AlignmentFlag.AlignHCenter)
         row = QHBoxLayout(); row.addWidget(QLabel("Save as:")); row.addWidget(self.path_edit, 1); row.addWidget(browse)
         lay.addLayout(row)
         trow = QHBoxLayout()
@@ -1193,6 +1231,89 @@ class ExportDialog(QDialog):
         lay.addWidget(self.folder_link)
         btns = QHBoxLayout(); btns.addStretch(1); btns.addWidget(self.cancel); btns.addWidget(self.go)
         lay.addLayout(btns)
+        for w in (self.lead_spin, self.tail_spin, self.start_pic.secs, self.start_pic.size,
+                  self.end_pic.secs, self.end_pic.size):
+            w.valueChanged.connect(self.refresh_preview)
+        for w in (self.start_pic.edit, self.end_pic.edit):
+            w.textChanged.connect(self.refresh_preview)
+        self.dec_combo.currentIndexChanged.connect(self.refresh_preview)
+        self.preview_at.currentIndexChanged.connect(self.refresh_preview)
+        self.preview_on.toggled.connect(self.refresh_preview)
+        self.refresh_preview()
+
+    def refresh_preview(self, *_):
+        """Show or hide the preview, and (re)draw it a moment after the last change."""
+        on = self.preview_on.isChecked()
+        self.preview_img.setVisible(on)
+        self.preview_at.setEnabled(on)
+        if not on:
+            self.preview_timer.stop()
+            self.stop_preview()
+            self.adjustSize()
+            return
+        self.preview_timer.start()
+
+    def stop_preview(self):
+        if self.preview_proc and self.preview_proc.state() != QProcess.ProcessState.NotRunning:
+            self.preview_proc.kill()
+            self.preview_proc.waitForFinished(2000)
+        self.preview_proc = None
+
+    def preview_message(self, text):
+        self.preview_img.setPixmap(QPixmap())
+        self.preview_img.setText(text)
+
+    def render_preview(self):
+        """Render one frame of the export with the current settings (the same ffmpeg filters as the real export)."""
+        if not self.preview_on.isChecked() or self.proc is not None:
+            return
+        ffmpeg, font = find_tool("ffmpeg"), find_overlay_font()
+        if not (ffmpeg and font and ffmpeg_has_encoder("libx264") and ffmpeg_has_filter("drawtext")):
+            self.preview_message("Preview needs ffmpeg (with the drawtext filter) and a bold font; see Export.")
+            return
+        if not os.path.exists(self.win["path"]):
+            self.preview_message("The source video can't be found.")
+            return
+        if self.preview_info is None:
+            self.preview_info = probe_stream(self.win["path"])
+        pics = [pic.spec(where) for pic, where in ((self.start_pic, "start"), (self.end_pic, "end"))
+                if pic.path() and os.path.exists(pic.path())]
+        at = self.preview_at.currentData()
+        lead_ms, tail_ms = int(self.lead_spin.value() * 1000), int(self.tail_spin.value() * 1000)
+        if self.preview_file is None:
+            fd, self.preview_file = tempfile.mkstemp(suffix=".png", prefix="lap_timer_preview_")
+            os.close(fd)
+        # the clip length (for the 'end' and 'middle' frames) comes from the same arithmetic as the export
+        _, clip_ms = build_export_args(self.win, self.win["path"], self.preview_file, font, self.preview_info,
+                                       tail_ms=tail_ms, lead_ms=lead_ms)
+        m, n = self.win["marks_ms"], len(self.win["lap_ms"])
+        lead = min(lead_ms, m[0])
+        when = {"start": 0.0, "end": clip_ms / 1000,
+                "middle": (lead + (m[n - 1] + m[n]) / 2 - m[0]) / 1000}[at]     # halfway through the last lap
+        argv, _ = build_export_args(self.win, self.win["path"], self.preview_file, font, self.preview_info,
+                                    tail_ms=tail_ms, lead_ms=lead_ms, no_audio=True, pictures=pics,
+                                    decimals=self.dec_combo.currentData(), preview_at=when, preview_w=PREVIEW_W)
+        self.stop_preview()
+        self.preview_proc = QProcess(self)
+        hide_console(self.preview_proc)
+        self.preview_proc.setProgram(ffmpeg)
+        self.preview_proc.setArguments(argv)
+        self.preview_proc.finished.connect(lambda code, _s, pr=self.preview_proc: self.preview_done(pr, code))
+        if not self.preview_img.pixmap() or self.preview_img.pixmap().isNull():
+            self.preview_message("Drawing preview…")
+        self.preview_proc.start()
+
+    def preview_done(self, proc, code):
+        if proc is not self.preview_proc:                  # an older render that was replaced
+            return
+        pix = QPixmap(self.preview_file) if code == 0 and self.preview_file else QPixmap()
+        if pix.isNull():
+            err = bytes(proc.readAllStandardError()).decode(errors="ignore").strip().splitlines()
+            self.preview_message("Couldn't draw the preview." + (f"\n{err[-1]}" if err else ""))
+        else:
+            self.preview_img.setText("")
+            self.preview_img.setPixmap(pix)
+        self.preview_proc = None
 
     def sync_audio_options(self, *_):
         """'Remove audio' and a replacement audio file are alternatives: choosing one switches the other off."""
@@ -1263,6 +1384,7 @@ class ExportDialog(QDialog):
             self.settings.setValue("export_audio", self.audio_path or "")
         self.start_pic.save()
         self.end_pic.save()
+        self.settings.setValue("export_preview", self.preview_on.isChecked())
         self.settings.setValue("export_decimals", self.dec_combo.currentData())
         self.settings.setValue("export_max_fps", self.fps_combo.currentData() or 0)
         self.settings.setValue("export_lead_s", self.lead_spin.value())
@@ -1294,6 +1416,8 @@ class ExportDialog(QDialog):
         self.reset_pad.setEnabled(False)
         self.no_audio.setEnabled(False)
         self.fps_combo.setEnabled(False)
+        self.preview_timer.stop()
+        self.stop_preview()
         self.dec_combo.setEnabled(False)
         for w in (self.audio_edit, self.audio_browse, self.audio_clear):
             w.setEnabled(False)
@@ -1354,6 +1478,14 @@ class ExportDialog(QDialog):
         self.bar.hide()
 
     def kill_job(self):
+        self.preview_timer.stop()
+        self.stop_preview()
+        if self.preview_file:
+            try:
+                os.unlink(self.preview_file)
+            except OSError:
+                pass
+            self.preview_file = None
         if self.proc and self.proc.state() != QProcess.ProcessState.NotRunning:
             self.cancelled = True
             self.proc.kill()
@@ -1364,6 +1496,10 @@ class ExportDialog(QDialog):
     def on_cancel(self):
         self.kill_job()
         self.reject()
+
+    def done(self, result):                                  # Esc, Cancel, Close or window X: tidy up
+        self.kill_job()
+        super().done(result)
 
     def closeEvent(self, e):
         self.kill_job()
