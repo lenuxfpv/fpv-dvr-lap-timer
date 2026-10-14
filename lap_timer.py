@@ -1145,7 +1145,7 @@ class ExportDialog(QDialog):
         self.fps_combo.setToolTip("Lower the frame rate of the exported video. YouTube plays at most 60 fps, so a 90 fps "
                                   "export is better converted to 60. A video already at or below the choice is not changed.")
         self.fps_combo.addItem("Original (keep as recorded)", None)
-        self.fps_combo.addItem("60 fps (best for YouTube)", 60)
+        self.fps_combo.addItem("60 fps", 60)
         self.fps_combo.addItem("30 fps", 30)
         i = self.fps_combo.findData(self.settings.value("export_max_fps", 0, type=int))
         self.fps_combo.setCurrentIndex(max(0, i))

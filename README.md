@@ -408,13 +408,17 @@ with a lap timer drawn on it.
   `m:ss.mmm`. An example frame:
 
   ![A frame from an exported video: the lap timer and finished laps top left, the track and total top right, and the gold fastest-laps banner along the bottom](docs/export-example.jpg)
+
+  Or watch a full exported video on YouTube: [example export](https://youtu.be/v1-ylStcwRc).
+
+  [![Watch the example export on YouTube](https://img.youtube.com/vi/v1-ylStcwRc/hqdefault.jpg)](https://youtu.be/v1-ylStcwRc)
 - **Requirements:** the export needs ffmpeg with libx264 and the `drawtext` filter (built with freetype; every normal
   full build has it), and a bold font file (see *What it needs*). The app checks all of this before exporting and
   tells you in plain words what to fix. The source video must be reachable (a network share that is offline shows
   an error).
 - **Speed and sharing:** exporting is slow because it is a high-quality re-encode: about 30 s for a 28 s 60 fps clip
   on a fast machine, and a few minutes for a 90 fps clip read from a network share, so leave it running. YouTube
-  plays up to 60 fps, so for a 90 fps video choose *Frame rate: 60 fps (best for YouTube)* in the export window. The
+  plays up to 60 fps, so for a 90 fps video choose *Frame rate: 60 fps* in the export window. The
   timer is drawn first, so it stays exact. Videos already at or below the chosen rate are not changed, and the choice
   is remembered. *Original* keeps the recorded rate.
 - **Timer decimals:** the lap timer on the video shows 3 decimals (25.737) by default. Choose *Timer decimals* 2, 1 or 0
