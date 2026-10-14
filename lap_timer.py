@@ -889,7 +889,7 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
         parts.append(dt(f"LAP {k + 1}   {fmt_overlay(win['lap_ms'][k])}", mar, y_list + round(k * line_h), fs_list,
                         enable=f"gte(t,{s[k + 1] - eps:.6f})"))
     # top right: track name, then the running total of the N laps
-    label = _filter_text(" \u00b7 ".join(x for x in (win.get("track") or "", win.get("date") or "") if x))
+    label = _filter_text(win.get("track") or "")
     if label:
         parts.append(dt(label, "w-text_w-%d" % mar, y_lbl, fs_small))
     y_tot = y_lbl + round(fs_small * 1.9) if label else y_lbl

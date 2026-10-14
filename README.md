@@ -402,12 +402,12 @@ with a lap timer drawn on it.
   the clip, so raise *Start padding* or *End padding* to show them over footage before the first gate or after
   the last lap. The pictures and their settings are remembered.
 - **The overlay:** top left, the current lap number and a running lap timer that restarts at each gate,
-  with each finished lap's time listed underneath; top right, the track name and date and the running
+  with each finished lap's time listed underneath; top right, the track name and the running
   total of the N laps; after the last gate the final lap and total are held on screen and a gold
   *FASTEST N CONSECUTIVE LAPS m:ss.mmm* banner appears. Times show as `ss.mmm` until they reach a minute, then
   `m:ss.mmm`. An example frame:
 
-  ![A frame from an exported video: the lap timer and finished laps top left, the track, date and total top right, and the gold fastest-laps banner along the bottom](docs/export-example.jpg)
+  ![A frame from an exported video: the lap timer and finished laps top left, the track and total top right, and the gold fastest-laps banner along the bottom](docs/export-example.jpg)
 - **Requirements:** the export needs ffmpeg with libx264 and the `drawtext` filter (built with freetype; every normal
   full build has it), and a bold font file (see *What it needs*). The app checks all of this before exporting and
   tells you in plain words what to fix. The source video must be reachable (a network share that is offline shows
