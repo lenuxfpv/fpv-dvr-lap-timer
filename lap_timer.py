@@ -91,10 +91,14 @@ def fmt(ms):
     return f"{m}:{rem / 1000:06.3f}"
 
 
-def fmt_overlay(ms):
-    """Like fmt, but without the minutes while the time is under a minute: s.mmm"""
-    m, rem = divmod(int(round(ms)), 60000)
-    return f"{m}:{rem / 1000:06.3f}" if m else f"{rem / 1000:.3f}"
+def fmt_overlay(ms, decimals=3):
+    """Like fmt, but without the minutes while the time is under a minute: s.mmm. `decimals` (0-3) is how many
+    digits follow the seconds; extra digits are cut off, not rounded, like the running clock on the video."""
+    unit = 10 ** (3 - decimals)                            # ms per last shown digit
+    m, rem = divmod(int(round(ms)) // unit * unit, 60000)
+    if not m:
+        return f"{rem / 1000:.{decimals}f}"
+    return f"{m}:{rem / 1000:0{3 + decimals if decimals else 2}.{decimals}f}"
 
 
 def vname(path):
@@ -831,7 +835,7 @@ def _filter_text(text):
 
 
 def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS,
-                      no_audio=False, audio_file=None, pictures=None):
+                      no_audio=False, audio_file=None, pictures=None, max_fps=None, decimals=3):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
     Returns (argv, clip_ms): the argument list and the length of the output clip."""
@@ -862,7 +866,8 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     def running(start, minutes):                           # time since `start`, live: m:ss.mmm, or s.mmm under a minute
         x = f"(max(t-{start + 0.0006:.6f}\\,0)+0.0004)"      # marks are rounded to 1 ms: the gate frame reads 0:00.000
         secs = f"%{{eif\\:mod(floor({x})\\,60)\\:d\\:{2 if minutes else 1}}}"
-        ms = f".%{{eif\\:mod(floor({x}*1000)\\,1000)\\:d\\:3}}"
+        ms = (f".%{{eif\\:mod(floor({x}*{10 ** decimals})\\,{10 ** decimals})\\:d\\:{decimals}}}"
+              if decimals else "")
         return (f"%{{eif\\:floor({x}/60)\\:d\\:1}}\\:" if minutes else "") + secs + ms
 
     def timer(start, en, *args, **kw):                     # running clock; the minutes appear once it reaches 60 s
@@ -884,9 +889,9 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
         parts += timer(s[k], en, mar, y_big, fs_big)
     en_end = f"gte(t,{s[n] - eps:.6f})"                    # after the last gate: hold the last lap
     parts.append(dt(f"LAP {n} / {n}", mar, y_lbl, fs_med, enable=en_end))
-    parts.append(dt(fmt_overlay(win["lap_ms"][n - 1]), mar, y_big, fs_big, enable=en_end))
+    parts.append(dt(fmt_overlay(win["lap_ms"][n - 1], decimals), mar, y_big, fs_big, enable=en_end))
     for k in range(n):                                     # finished laps list, one line appears per lap
-        parts.append(dt(f"LAP {k + 1}   {fmt_overlay(win['lap_ms'][k])}", mar, y_list + round(k * line_h), fs_list,
+        parts.append(dt(f"LAP {k + 1}   {fmt_overlay(win['lap_ms'][k], decimals)}", mar, y_list + round(k * line_h), fs_list,
                         enable=f"gte(t,{s[k + 1] - eps:.6f})"))
     # top right: track name, then the running total of the N laps
     label = _filter_text(win.get("track") or "")
@@ -895,9 +900,9 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     y_tot = y_lbl + round(fs_small * 1.9) if label else y_lbl
     parts.append(dt(f"{n} LAPS", "w-text_w-%d" % mar, y_tot, fs_med))
     parts += timer(s[0], f"lt(t,{s[n] - eps:.6f})", "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big)
-    parts.append(dt(fmt_overlay(win["total_ms"]), "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big,
+    parts.append(dt(fmt_overlay(win["total_ms"], decimals), "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big,
                     color="#FFD54F", enable=en_end))
-    parts.append(dt(f"FASTEST {n} CONSECUTIVE LAPS   {fmt_overlay(win['total_ms'])}", "(w-text_w)/2", f"h-text_h-{mar}",
+    parts.append(dt(f"FASTEST {n} CONSECUTIVE LAPS   {fmt_overlay(win['total_ms'], decimals)}", "(w-text_w)/2", f"h-text_h-{mar}",
                     round(fs_med * 1.25), color="#FFD54F", enable=en_end, box=0.65))
 
     matrix = {"bt470bg": "bt470", "smpte170m": "smpte170m", "bt709": "bt709", "bt2020nc": "bt2020",
@@ -910,7 +915,11 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     skip = (c0 - seek_ms) / 1000.0
     cut = f"trim=start={skip:.6f}:duration={clip_ms / 1000:.6f},setpts=PTS-STARTPTS"
     tags = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
-    vf = ",".join([cut, convert] + parts + [tags, "format=yuv420p"])
+    # Lower frame rate (e.g. 90 -> 60 for YouTube): done after the overlay is drawn, so the timer stays exact.
+    # Never raises the rate: a video already at or below the limit is left alone.
+    lower = [f"fps={max_fps:g}"] if max_fps and info.get("fps", 0) > max_fps + 0.01 else []
+    vf = ",".join([cut, convert] + parts + [tags, "format=yuv420p"] + lower)
+    vf_base = ",".join([cut, convert] + parts + [tags, "format=yuv420p"])
     clip_s = clip_ms / 1000
     if audio_file:                                         # replacement sound track, from its start; padded with
         fade = min(1.0, clip_s)                            # silence if too short, cut (with a 1 s fade) if too long
@@ -931,7 +940,7 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
         # the last `secs` seconds; "start": shown from the first frame, fades out after `secs` seconds. Never
         # scaled up past their own size; colours converted to the BT.709 the video uses.
         first = 2 if audio_file else 1                     # input number of the first picture
-        parts_g, last = [f"[0:v]{vf}[base]"], "base"
+        parts_g, last = [f"[0:v]{vf_base}[base]"], "base"
         for k, pic in enumerate(pictures):
             idx, secs = first + k, float(pic.get("secs", EXPORT_PIC_S))
             th = max(16, round(H * float(pic.get("pct", EXPORT_PIC_PCT)) / 100))
@@ -952,7 +961,7 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             parts_g.append(f"[{last}][pic{k}]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1:enable='{en}'[{out_label}]")
             last = out_label
             pic_in += ["-loop", "1", "-framerate", "30", "-i", str(pic["path"])]
-        parts_g.append(f"[{last}]format=yuv420p[v]")
+        parts_g.append(",".join([f"[{last}]format=yuv420p"] + lower) + "[v]")
         video_args = ["-filter_complex", ";".join(parts_g), "-map", "[v]"]
     argv = ["-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
             "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src),
@@ -1085,7 +1094,7 @@ class ExportDialog(QDialog):
         self.bar.setRange(0, 100)
         self.bar.hide()
         self.status = QLabel("Re-encodes the original footage (not the smooth copy) as H.264 MP4 at its original "
-                             "size and frame rate, with the lap timer drawn on it.")
+                             "size, with the lap timer drawn on it. Frame rate is kept unless you pick a lower one below.")
         self.status.setWordWrap(True)
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.folder_link = QLabel()                        # shown once the export is done: opens the folder
@@ -1132,6 +1141,19 @@ class ExportDialog(QDialog):
         self.end_pic = PictureRow(self, "End picture:", "export_end_pic",
                                   "A picture shown in the centre of the video at the end, fading in.",
                                   fade_word="fades in over the first half second")
+        self.fps_combo = QComboBox()
+        self.fps_combo.setToolTip("Lower the frame rate of the exported video. YouTube plays at most 60 fps, so a 90 fps "
+                                  "export is better converted to 60. A video already at or below the choice is not changed.")
+        self.fps_combo.addItem("Original (keep as recorded)", None)
+        self.fps_combo.addItem("60 fps (best for YouTube)", 60)
+        self.fps_combo.addItem("30 fps", 30)
+        i = self.fps_combo.findData(self.settings.value("export_max_fps", 0, type=int))
+        self.fps_combo.setCurrentIndex(max(0, i))
+        self.dec_combo = QComboBox()
+        self.dec_combo.setToolTip("How many digits after the seconds the lap timer shows on the video")
+        for d, label in ((3, "3 (25.737)"), (2, "2 (25.74)"), (1, "1 (25.7)"), (0, "0 (25)")):
+            self.dec_combo.addItem(label, d)
+        self.dec_combo.setCurrentIndex(max(0, self.dec_combo.findData(self.settings.value("export_decimals", 3, type=int))))
         self.reset_pad = QPushButton("Reset padding")
         self.reset_pad.setToolTip(f"Back to the defaults: {EXPORT_LEAD_MS / 1000:g} s before, "
                                   f"{EXPORT_TAIL_MS / 1000:g} s after")
@@ -1154,6 +1176,9 @@ class ExportDialog(QDialog):
         trow.addWidget(self.reset_pad)
         trow.addStretch(1)
         lay.addLayout(trow)
+        frow = QHBoxLayout(); frow.addWidget(QLabel("Frame rate:")); frow.addWidget(self.fps_combo)
+        frow.addSpacing(16); frow.addWidget(QLabel("Timer decimals:")); frow.addWidget(self.dec_combo); frow.addStretch(1)
+        lay.addLayout(frow)
         lay.addWidget(self.no_audio)
         arow = QHBoxLayout()
         arow.addWidget(QLabel("Replace audio with:")); arow.addWidget(self.audio_edit, 1)
@@ -1238,6 +1263,8 @@ class ExportDialog(QDialog):
             self.settings.setValue("export_audio", self.audio_path or "")
         self.start_pic.save()
         self.end_pic.save()
+        self.settings.setValue("export_decimals", self.dec_combo.currentData())
+        self.settings.setValue("export_max_fps", self.fps_combo.currentData() or 0)
         self.settings.setValue("export_lead_s", self.lead_spin.value())
         self.settings.setValue("export_tail_s", self.tail_spin.value())
         self.font, self.info = font, probe_stream(self.win["path"])
@@ -1250,6 +1277,8 @@ class ExportDialog(QDialog):
                                                lead_ms=int(self.lead_spin.value() * 1000),
                                                no_audio=self.no_audio.isChecked(),
                                                audio_file=self.audio_path,
+                                               max_fps=self.fps_combo.currentData(),
+                                               decimals=self.dec_combo.currentData(),
                                                pictures=[self.start_pic.spec("start"), self.end_pic.spec("end")])
         self.buf = ""
         self.proc = QProcess(self)
@@ -1264,6 +1293,8 @@ class ExportDialog(QDialog):
         self.tail_spin.setEnabled(False)
         self.reset_pad.setEnabled(False)
         self.no_audio.setEnabled(False)
+        self.fps_combo.setEnabled(False)
+        self.dec_combo.setEnabled(False)
         for w in (self.audio_edit, self.audio_browse, self.audio_clear):
             w.setEnabled(False)
         self.start_pic.set_busy(True)

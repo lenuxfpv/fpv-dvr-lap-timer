@@ -383,7 +383,7 @@ with a lap timer drawn on it.
   folder can't be found); change the name or folder if you like, then click *Export*. A progress bar shows how far
   it is, and *Cancel* removes the partial file. When it finishes, an *Open the folder* link opens the folder.
 - **What you get:** an MP4 (H.264) of the **original footage**, not the smooth copy, at its original resolution and
-  frame rate (a 90 fps video stays 90 fps), cut on the exact frames you marked. It is re-encoded at high quality
+  frame rate by default (a 90 fps video stays 90 fps; see *Frame rate* below), cut on the exact frames you marked. It is re-encoded at high quality
   (x264 CRF 16, slow preset) with BT.709 colours so it plays correctly on YouTube, Discord and phones.
 - **Padding:** 1 s before the first gate and 2 s after the last one by default. Change them with "Start padding" and
   "End padding" in the export dialog (0–10 s each; the start can't go earlier than the start of the video).
@@ -414,7 +414,11 @@ with a lap timer drawn on it.
   an error).
 - **Speed and sharing:** exporting is slow because it is a high-quality re-encode: about 30 s for a 28 s 60 fps clip
   on a fast machine, and a few minutes for a 90 fps clip read from a network share, so leave it running. YouTube
-  plays up to 60 fps, so a 90 fps export is shown at 60 there; the file itself is left untouched.
+  plays up to 60 fps, so for a 90 fps video choose *Frame rate: 60 fps (best for YouTube)* in the export window. The
+  timer is drawn first, so it stays exact. Videos already at or below the chosen rate are not changed, and the choice
+  is remembered. *Original* keeps the recorded rate.
+- **Timer decimals:** the lap timer on the video shows 3 decimals (25.737) by default. Choose *Timer decimals* 2, 1 or 0
+  for a cleaner look; extra digits are cut off, not rounded, and the choice is remembered.
 
 ## Troubleshooting
 
