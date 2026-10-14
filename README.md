@@ -29,7 +29,8 @@ placed on a frame you can see, the times are accurate to the frame and easy to d
 - **Keep a library.** Videos are grouped by track and session date, and each card shows the lap count, fastest lap
   and fastest run at a glance. Move or rename files and the marks stay attached.
 - **Find your best.** Fastest lap and your fastest run of consecutive laps (3 by default, 2-10 per track), per
-  video and across a whole track, with a lap chart and a progress chart to see improvement over time.
+  video and across a whole track, with a lap chart and a progress chart to see improvement over time. In the open
+  video the fastest lap is highlighted in gold and the fastest run in blue, in the gate list and on the seek bar.
 - **Export a shareable video.** Cut your fastest run from the original footage with a lap timer drawn on it,
   optional start and end pictures (your pilot handle, say), your own audio or none, and padding either side.
 - **Export your data.** Lap times to CSV, and the whole library to a single file you can back up, move to another
@@ -348,7 +349,9 @@ dialogs follow it.
 
 ## Reports
 
-- **Per video** (right panel): good / total laps, fastest lap, fastest N consecutive laps.
+- **Per video** (right panel): good / total laps, fastest lap, fastest N consecutive laps. In the gate list the
+  fastest lap's row is gold and bold, and the rows of the fastest N-lap run are tinted blue; the same two stretches
+  are shaded gold and blue on the seek bar. Bad laps are never highlighted.
 - **Lap chart** (right panel): bar chart of one video's laps. Green = fastest, grey = bad, dashed blue
   box = fastest N consecutive. Hover a bar for details.
 - **Library stats** (left panel): pick a track (or *All tracks*) to see its fastest lap and fastest N,
