@@ -388,6 +388,8 @@ Choose the folder your goggles' DVR files end up in once, and the app offers the
 - **Library → DVR folder → Choose DVR folder…** picks it (subfolders are included, so a `RaceGOW` folder with one
   folder per track works). The app checks it each time it starts, and **Check for new videos** does it on demand. If
   the folder isn't there (card not plugged in), the start-up check says nothing.
+  The first time you choose a folder (or change it), the app asks whether to **choose folders to skip** before it
+  scans, or to **scan now**.
 - If no DVR folder is set, **Add folder…** offers to watch the folder you just added (after you click *Add N videos*,
   never when you cancel): *Watch this folder*, *Not now* (it asks again next time) or *Don't ask again*. Choosing it
   also counts everything in that list as offered, so none of it comes back. Dropping a folder never asks.

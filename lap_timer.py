@@ -5930,9 +5930,26 @@ class MainWindow(QMainWindow):
         start = str(self.settings.value("watch_folder", "") or Path.home())
         folder = QFileDialog.getExistingDirectory(self, "Choose your DVR folder (subfolders are included)", start)
         if folder:
+            changed = os.path.abspath(folder) != os.path.abspath(str(self.settings.value("watch_folder", "") or "-"))
             self.settings.setValue("watch_folder", folder)
             self.refresh_dvr_button()
+            if changed and self.ask_skip_folders_first():
+                self.edit_excluded_folders()
             self.check_dvr_folder(manual=True)
+
+    def ask_skip_folders_first(self):
+        """A new DVR folder is about to be scanned for the first time: offer to pick folders to leave out first.
+        True if the user wants to choose them."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Skip any folders?")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText("Before the first scan: are there folders inside it that the DVR check should never look in?\n\n"
+                    "Your folders aren't changed. You can also do this later under Library → DVR folder → "
+                    "Excluded folders…, or by right-clicking a video in the list of new videos.")
+        pick = box.addButton("Choose folders to skip…", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Scan now", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        return box.clickedButton() is pick
 
     def on_dvr_button(self):
         if str(self.settings.value("watch_folder", "") or ""):
