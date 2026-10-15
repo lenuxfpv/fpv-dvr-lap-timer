@@ -96,6 +96,9 @@ finishes, **Open the folder** takes you to the video.
 The result is an H.264 MP4 of the **original footage** (not the smooth copy) at its original resolution, cut on
 the exact frames you marked, with BT.709 colours so it plays correctly on YouTube, Discord and phones.
 
+Each exported file carries a small tag saying it came from this app. That is how the DVR folder check and *Add folder…* know
+to leave your exports out of the library, even if you rename them.
+
 ## Requirements
 
 Export needs a full **ffmpeg** build with the libx264 encoder and the drawtext filter (the app offers to install

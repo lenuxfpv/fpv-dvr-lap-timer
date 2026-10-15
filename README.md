@@ -24,20 +24,29 @@ placed on a frame you can see, the times are accurate to the frame and easy to d
 ## What it can do
 
 - **Mark laps frame by frame.** Play, shuttle (0.1x to 16x), step single frames or jump between gates, then mark
-  the frame on screen. Marks can be moved or deleted, and any lap can be flagged as bad.
+  the frame on screen. Marks can be moved (even a single frame with a key) or deleted, any lap can be flagged as
+  bad with one key, and Ctrl+Z undoes your mark changes. A label and a timer on the video show which lap you are in.
 - **Scrub smoothly.** It builds a small all-keyframe copy of each video in the background, so scrubbing and
   frame-stepping are fluid even on `.ts` DVR files.
 - **Keep a library.** Videos are grouped by track and session date, and each card shows the lap count, fastest lap
-  and fastest run at a glance. Move or rename files and the marks stay attached.
+  and fastest run at a glance. Add a note to a video (battery, props, tune) and search by name, track or note. Move
+  or rename files and the marks stay attached.
+- **Add new flights without the chore.** Point the app at your DVR folder (subfolders are fine) and it offers the
+  new videos each time it starts, with the track suggested from the folder name.
 - **Find your best.** Fastest lap and your fastest run of consecutive laps (3 by default, 2-10 per track), per
-  video and across a whole track, with a lap chart and a progress chart to see improvement over time. In the open
-  video the fastest lap is highlighted in gold and the fastest run in blue, in the gate list and on the seek bar.
+  video and across a whole track, with a lap chart and a progress chart to see improvement over time, plus how
+  consistent your laps are. In the open video the fastest lap is highlighted in gold and the fastest run in blue,
+  in the gate list and on the seek bar.
+- **Compare two laps.** Play any two laps side by side, even from different videos on the same track, both starting
+  on their gate frame, to see where one gains on the other.
 - **Export a shareable video.** Cut your fastest run from the original footage with a lap timer drawn on it,
   optional start and end pictures (your pilot handle, say), your own intro and outro videos, your own audio or
   none, and padding either side. You can also export any laps you choose, and move or hide parts of the timer.
   [Export guide](docs/EXPORT.md).
 - **Export your data.** Lap times to CSV, and the whole library to a single file you can back up, move to another
   computer or merge into another library.
+- **Fit a small screen.** A compact layout and a hideable library panel bring the window down to about 780-1040 px
+  wide.
 
 It runs on Windows (installer or portable exe) and Linux, and reads `.ts`, `.mp4`, `.mov`, `.mkv`, `.m4v` and
 `.avi` files. Found a bug or have an idea? [Open an issue](https://github.com/lenuxfpv/fpv-dvr-lap-timer/issues).
@@ -148,12 +157,14 @@ the cached smooth copies to free disk space.
 
 Everything is stored in one SQLite database, `library.db`: Linux `~/.local/share/fpv-dvr-lap-timer/`, Windows
 `%APPDATA%\fpv-dvr-lap-timer\`. Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds
-each video's path, gate marks, bad-lap flags, track name, session date and notes. Back up that one file to keep your
+each video's path, gate marks, bad-lap flags, track name, session date and notes, plus the track you gave each
+folder's videos and the DVR check's list of files it has already offered. Back up that one file to keep your
 history.
 
 - **Smooth-scrub copies** live in a cache folder, never next to your videos: Linux `~/.cache/fpv-dvr-lap-timer/smooth`,
   Windows `%LOCALAPPDATA%\fpv-dvr-lap-timer\smooth`.
-- **Preferences** (theme, keyboard shortcuts, the *Auto-build* / *Build when adding* checkboxes) are stored
+- **Preferences** (theme, keyboard shortcuts, compact layout, the DVR folder, the *Auto-build* / *Build when adding*
+  checkboxes, your export options) are stored
   separately by Qt (Linux `~/.config/fpv-dvr-lap-timer/app.conf`, Windows registry) and are not part of the library
   file.
 - **Help → About** shows the library folder and the smooth-copies folder as links that open them in your file
@@ -179,8 +190,8 @@ The **Library** menu works on the whole database, so you don't have to find `lib
 - **Import library (replace)…** swaps your library for an exported file. Your current library is saved
   first as `library-before-import-<date-time>.db` next to `library.db`.
 - **Merge library…** adds another library to yours without overwriting anything. Videos are matched by
-  file path: new videos come across with their marks, track and session date; for videos you both have,
-  marks at times you don't already have are added and an empty track or session date is filled in
+  file path: new videos come across with their marks, track, session date and notes; for videos you both have,
+  marks at times you don't already have are added and an empty track, session date or note is filled in
   (your own marks and settings are kept). A summary shows what was added.
 
 To move to another computer, export on the old one and import (or merge) on the new one. You can also copy
@@ -211,9 +222,11 @@ LAPS      FASTEST     FASTEST 3
   Bad laps are excluded, as everywhere else.
 - The **file name** is on a small line at the bottom (shortened in the middle if long), with the session
   date at its right.
-- Badges at the top right: **🔒** auto-build is off for this video, **⚡** smooth-scrub copy ready, **⚠ duplicate**
+- Badges at the top right: **📝** the video has a note, **🔒** auto-build is off for this video, **⚡** smooth-scrub copy ready, **⚠ duplicate**
   (orange) same file listed twice, **⚠ not found** (red) the file is missing - double-click it to locate it.
-- Hover a card for its full path.
+- Hover a card for its full path (and its note).
+- Above the list: a **track** filter, a **Sort** box (date, fastest lap or fastest run), a **Show** box (all videos,
+  not marked yet, or marked only) and a **search box** that matches file names, tracks and notes.
 - The **Remove** button takes the selected video out of the library, with its marks. The video file is not touched.
 
 **Right-click menu.** Right-click a video (or a selection; right-clicking an unselected video acts on just that one):
@@ -235,8 +248,9 @@ LAPS      FASTEST     FASTEST 3
    viewed. When you add a folder, each video's track is **suggested from the name of the folder it sits in**
    (`RaceGOW/Track 1/flight.ts` starts on *Track 1*, or on the track you gave that folder's videos last time; a folder
    named like an existing track, in any capitals, uses that track; videos directly in the folder you picked get no
-   suggestion). Change any of them in the list. Videos that
-   **this app exported** are left out of folder scans (see *DVR folder*).
+   suggestion). Change any of them in the list. Videos that this app exported are left out of folder scans. A *Note
+   for all added videos* box saves one note on everything you add. Or skip all this: choose a **DVR folder** and the
+   app offers new flights for you (see *DVR folder*).
 2. Select videos and click **Track / date / notes…** to set a track name, session date and notes (see *Tracks and session dates*).
 3. Double-click a video to open it.
 4. Play or scrub to the moment you pass through the gate and press **Z** (or the green button; the key can be
@@ -377,15 +391,16 @@ Choose the folder your goggles' DVR files end up in once, and the app offers the
   never when you cancel): *Watch this folder*, *Not now* (it asks again next time) or *Don't ask again*. Choosing it
   also counts everything in that list as offered, so none of it comes back. Dropping a folder never asks.
 - New videos open in the same add list as *Add folder…*, with each track suggested from the folder name, a note box
-  and *Add N videos*. **The app learns your choice:** if you put the videos from a folder called `Track 1` on the track
-  `RaceGOW Track 1`, the next videos from a folder of that name start on `RaceGOW Track 1` (matched by folder name,
-  ignoring capitals; change one in the list and it learns the new choice; renaming or deleting a track updates it). Nothing is added until you click. Only videos that aren't in the library yet are listed.
+  and *Add N videos*. Nothing is added until you click, and only videos that aren't in the library yet are listed.
+- **The app learns your choice.** If you put the videos from a folder called `Track 1` on the track `RaceGOW Track 1`,
+  the next videos from a folder of that name start on `RaceGOW Track 1` (matched by folder name, ignoring capitals;
+  change one in the list and it learns the new choice; renaming or deleting a track updates it).
 - Whatever that list showed is remembered, whether you added it or unticked it, so it isn't offered again. Videos are
   recognised by file name, size and date (not by folder), so renaming or moving the DVR folder, or a track folder,
-  doesn't bring skipped videos back. Close the
-  list with *Cancel* and it is simply offered again next time. To get rid of a video for good, untick it and click *Add N videos*; if it is the only one, unticking it turns the button into
-  **Don't add it (never offer again)**. **Offer skipped videos again** forgets the list, and
-  **Stop watching** clears the folder.
+  doesn't bring skipped videos back. Close the list with *Cancel* and it is simply offered again next time.
+- **To get rid of a video for good,** untick it and click *Add N videos*. If it is the only new video, unticking it
+  turns the button into **Don't add it (never offer again)**. **Offer skipped videos again** forgets the whole list,
+  and **Stop watching** clears the folder.
 - **Exported videos are skipped.** Videos made by the export feature are left out of the DVR check, *Add folder…* and
   dropped folders. Exports are recognised by the tag the app now writes into each exported file (so a renamed export
   is still caught) and by the names it suggests (`<track> fastest 3 27.900.mp4`, `<track> laps 3-5 1:02.345.mp4`),
@@ -428,8 +443,7 @@ on the other.
 - Both laps start on their own start-gate frame and play together; **Play / Pause**, **Frame** steps, the **Speed**
   box (0.1x to 2x), the seek bar and your own play and step keys all move the two videos as one. As in the main
   window, **hold Shift+←** or **Shift+→** (your hold-to-play keys) to play both backward or forward at 2x while the
-  key is down; they stop when you let go. The shorter lap stops
-  on its finish gate while the other runs on. The line under the videos gives both lap times and the difference;
+  key is down; they stop when you let go. The shorter lap stops on its finish gate while the other runs on. The line under the videos gives both lap times and the difference;
   whichever lap reaches a gate or corner first at the same elapsed time is ahead. Both videos play without sound.
 - **It needs smooth copies.** The original `.ts` files can't seek to an exact frame (they land up to a second late) and
   are too heavy to decode two at once, so the two laps would not line up. If a chosen video has no smooth copy the
@@ -494,15 +508,15 @@ New to it? See the step-by-step guide: **[How to export your fastest laps](docs/
 - **Padding:** 1 s before the first gate and 2 s after the last one by default. Change them with "Start padding" and
   "End padding" in the export dialog (0–10 s each; the start can't go earlier than the start of the video).
   **Reset padding** puts both back to the defaults, and your choice is remembered.
-- **Audio** is kept if the source has any, unless you tick **Remove audio** (remembered) or choose **Replace audio
-  with:** an audio file of your own (mp3, wav, m4a, flac, ogg…; or any file that has an audio track). The replacement
+- **Audio** is kept if the source has any, unless you tick **Remove audio (whole video, including intro and outro)**
+  (remembered) or choose **Replace audio with:** an audio file of your own (mp3, wav, m4a, flac, ogg…; or any file that has an audio track). The replacement
   starts with the clip, is padded with silence if it is shorter and fades out over the last second if it is longer.
   The two options are alternatives: choosing a file switches *Remove audio* off. The audio file you used last is
   remembered (if it is still there); *Clear* forgets it.
 - **Intro and outro videos:** choose an **Intro video:** and/or **Outro video:** of your own (any video file). They
   are joined before and after the lap clip, fitted into the same frame size (black bars if the shape differs) and
   frame rate; the lap timer and pictures appear only on the lap clip. They keep their own sound (silence if they
-  have none). With a *Replace audio with:* file, tick **Replacement audio also plays over the intro video and outro video (added below)** to
+  have none). With a *Replace audio with:* file, tick **Replacement audio also plays over the intro video and outro video (added above)** to
   have it play under the whole video; unticked, it covers only the lap clip. The preview shows the lap clip only.
 - **Start and end pictures (stickers):** choose a **Start picture:** and/or an **End picture:** (they can be
   different files; a PNG with transparency works best, JPG, WebP, BMP and GIF also work), for example your
@@ -539,7 +553,8 @@ New to it? See the step-by-step guide: **[How to export your fastest laps](docs/
   remembered. On a small screen the options scroll instead of the window growing past the screen.
 - **Highlight fastest lap:** tick it in the export window to show the fastest of the exported laps in gold in the
   finished-laps list. Off by default; the choice is remembered.
-- **Timer decimals:** the lap timer on the video shows 3 decimals (25.737) by default. Choose *Timer decimals* 2, 1 or 0
+- **Decimals:** the lap timer on the video shows 3 decimals (25.737) by default. Choose *Decimals* 2, 1 or 0 (in the
+  export window's *Timer* group)
   for a cleaner look; extra digits are cut off, not rounded, and the choice is remembered.
 
 ## Troubleshooting
@@ -548,6 +563,10 @@ New to it? See the step-by-step guide: **[How to export your fastest laps](docs/
 - **"ffmpeg needed" or smooth copies won't build.** See *What it needs*. The usual cause is an ffmpeg without libx264;
   the app says so in plain words and tells you the fix for your system.
 - **Windows shows a blue SmartScreen warning.** See *"Windows protected your PC"* under *Windows*.
+- **The same video keeps coming back from the DVR check.** Untick it and click *Add N videos* (or *Don't add it (never
+  offer again)* if it is the only one). *Cancel* remembers nothing.
+- **Compare laps says a smooth copy is needed.** Both laps need one so they can start on exactly their gate frame;
+  let it build it (see *Comparing laps*).
 - **Something unexpected goes wrong.** The app shows a message in the status bar and keeps running instead of
   closing; the details are written to `errors.log` next to the library database. Please include it if you
   [open an issue](https://github.com/lenuxfpv/fpv-dvr-lap-timer/issues).
