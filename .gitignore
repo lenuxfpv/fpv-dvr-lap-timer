@@ -6,3 +6,4 @@ dist/
 *.spec
 version_info.txt
 TestVideo.ts
+Thumbs.db
