@@ -485,8 +485,9 @@ class Library:
             "SELECT id, time_ms, bad_lap FROM marks WHERE video_id=? ORDER BY time_ms", (vid,)).fetchall()
 
     def add_mark(self, vid, t):
-        self.db.execute("INSERT INTO marks(video_id, time_ms) VALUES(?,?)", (vid, int(t)))
+        cur = self.db.execute("INSERT INTO marks(video_id, time_ms) VALUES(?,?)", (vid, int(t)))
         self.db.commit()
+        return cur.lastrowid
 
     def delete_mark(self, mid):
         self.db.execute("DELETE FROM marks WHERE id=?", (mid,))
@@ -2534,6 +2535,7 @@ KEY_ACTIONS = [
     ("next_gate", "Next gate mark", "PgDown"),
     ("slower", "Slower playback", "["),
     ("faster", "Faster playback", "]"),
+    ("bad_lap", "Mark / unmark the lap at the playhead as bad", "X"),
     ("delete_mark", "Delete the selected mark (when the table has focus)", "Delete"),
 ]
 KEY_DEFAULTS = {kid: key for kid, _, key in KEY_ACTIONS}
@@ -2738,6 +2740,7 @@ class MainWindow(QMainWindow):
         # navigation state
         self.cur_path = None
         self.frame_ms = None     # timestamp of the frame actually on screen
+        self.pending_bad = None  # (video id, last gate time) while X has flagged the lap in progress as bad
         self.cursor_ms = 0.0     # where navigation is heading (may be ahead of the shown frame)
         self._last_seek = 0.0
         self._resume_pos = None  # position to restore once a new source has loaded
@@ -2870,6 +2873,12 @@ class MainWindow(QMainWindow):
         self.mark_btn.setToolTip("Mark a gate pass on the frame shown. Change the key under View → Keyboard shortcuts…")
         self.mark_btn.setStyleSheet("font-weight:bold; padding:8px 14px; background:#2e7d32; color:white;")
         self.mark_btn.clicked.connect(self.mark_gate)
+        self.bad_btn = QPushButton()
+        self.bad_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)          # so Space keeps playing / pausing
+        self.bad_btn.setToolTip("Flag the lap at the playhead as bad (press again to undo). While you are still marking, "
+                                "press it during a lap and then mark the gate that ends it: that lap is saved as bad. "
+                                "Change the key under View → Keyboard shortcuts…")
+        self.bad_btn.clicked.connect(self.toggle_bad_lap)
 
         # spring-loaded shuttle: drag right = forward (slow -> fast), left = backward, release = stop
         self.jog = QSlider(Qt.Orientation.Horizontal)
@@ -2915,6 +2924,7 @@ class MainWindow(QMainWindow):
         for w in (self.proxy_btn, self.use_proxy, self.auto_proxy):
             proxyrow.addWidget(w)
         proxyrow.addWidget(self.proxy_label, 1)
+        proxyrow.addWidget(self.bad_btn)                    # right-aligned, directly under the mark button
         self.title_label = QLabel("Add a video to the library and double-click it to start.")
         center = QWidget()
         cl = QVBoxLayout(center)
@@ -3005,7 +3015,7 @@ class MainWindow(QMainWindow):
             "shuttle_fwd": lambda: self.key_shuttle(1),
             "prev_gate": lambda: self.jump_mark(-1), "next_gate": lambda: self.jump_mark(1),
             "slower": lambda: self.change_speed(-1), "faster": lambda: self.change_speed(1),
-            "delete_mark": self.delete_key,
+            "bad_lap": self.toggle_bad_lap, "delete_mark": self.delete_key,
         }
         self.shortcuts = {}
         for kid, fn in handlers.items():
@@ -3603,6 +3613,7 @@ class MainWindow(QMainWindow):
         self.hold_bindings = {k: sp for kid, sp in (("hold_back", -2.0), ("hold_fwd", 2.0))
                               if (k := self.key_for(kid))}
         self.mark_btn.setText(f"🏁 MARK START/FINISH GATE ({self.key_text('mark')})")
+        self.refresh_bad_btn()
         self.hint.setText("Mouse wheel on the video = frame step (Shift ×10) · all keys: View → Keyboard shortcuts…")
 
     def choose_keys(self):
@@ -4127,6 +4138,44 @@ class MainWindow(QMainWindow):
             self.player.pause()
             self.seek(cand[-1] if direction < 0 else cand[0])
 
+    def refresh_bad_btn(self):
+        """Label the Bad lap button with its key; lit orange while the lap in progress is flagged to end bad."""
+        pending = (self.vid is not None and self.pending_bad is not None and bool(self.mark_rows)
+                   and self.pending_bad == (self.vid, self.mark_rows[-1][1]))
+        key = self.key_text("bad_lap")
+        self.bad_btn.setText(f"✖ Lap will be BAD ({key})" if pending else f"✖ Bad lap ({key})")
+        self.bad_btn.setStyleSheet(
+            "font-weight:bold; padding:4px 14px; background:#ef6c00; color:white; border:1px solid #ef6c00;" if pending
+            else "padding:4px 14px; color:#ef6c00; border:1px solid #ef6c00;")
+
+    def toggle_bad_lap(self):
+        """Flag (or un-flag) the lap the playhead is in as bad. A frame on a gate belongs to the lap starting there."""
+        if self.vid is None:
+            self.statusBar().showMessage("Open a video first", 3000)
+            return
+        here = self.cursor_ms
+        row = next((i for i, m in enumerate(self.mark_rows) if m[1] > here + 1), None)
+        if row is None and self.mark_rows:                  # past the last mark: the lap in progress, not ended yet
+            last = self.mark_rows[-1][1]
+            if self.pending_bad == (self.vid, last):
+                self.pending_bad = None
+                self.refresh_bad_btn()
+                self.statusBar().showMessage(f"Lap {len(self.mark_rows)} is good again", 4000)
+            else:
+                self.pending_bad = (self.vid, last)
+                self.refresh_bad_btn()
+                self.statusBar().showMessage(f"Lap {len(self.mark_rows)} will be marked bad when you mark the gate "
+                                             f"that ends it (press {self.shortcuts['bad_lap'].key().toString()} "
+                                             "again to cancel)", 8000)
+            return
+        if not row:                                         # no marks yet, or before the first one
+            self.statusBar().showMessage("The playhead isn't inside a lap yet: mark the start gate first", 4000)
+            return
+        item = self.table.item(row, self.COL_BAD)
+        bad = item.checkState() != Qt.CheckState.Checked
+        item.setCheckState(Qt.CheckState.Checked if bad else Qt.CheckState.Unchecked)   # saves and redraws
+        self.statusBar().showMessage(f"Lap {row} marked bad" if bad else f"Lap {row} is good again", 3000)
+
     def apply_speed(self):
         if not self.shuttle_rate:
             self.player.setPlaybackRate(self.speed.currentData())
@@ -4189,9 +4238,16 @@ class MainWindow(QMainWindow):
         if any(abs(t - m[1]) < 300 for m in self.mark_rows):
             self.statusBar().showMessage("There is already a mark at this spot", 3000)
             return
-        self.lib.add_mark(self.vid, t)
+        before = max((m[1] for m in self.mark_rows), default=None)      # the gate this lap started at
+        mid = self.lib.add_mark(self.vid, t)
+        flagged = self.pending_bad == (self.vid, before) and before is not None and t > before
+        self.pending_bad = None
+        if flagged:                                         # X was pressed during this lap: it ends bad
+            self.lib.set_bad(mid, True)
         self.load_marks()
         self.refresh_library()
+        if flagged:
+            self.statusBar().showMessage(f"Lap {len(self.mark_rows) - 1} marked bad", 3000)
 
     def load_marks(self):
         self._building = True
@@ -4234,6 +4290,8 @@ class MainWindow(QMainWindow):
         self._building = False
         self.slider.set_marks(times, lap_span, run_span)
         self.update_stats(laps)
+        if hasattr(self, "bad_btn"):
+            self.refresh_bad_btn()
 
     def run_track(self):
         """The track the 'Fastest run' box applies to: the open video's, else the one picked in the library

@@ -302,6 +302,7 @@ These are the defaults; every one can be changed (see *Changing the keys* below)
 | J / K / L | Shuttle backward / stop / forward (repeat to speed up) |
 | PgUp / PgDn | Previous / next gate mark |
 | `[` / `]` | Slower / faster playback (0.1x - 8x) |
+| X | Flag the current lap as bad: during a lap you are still marking, it is flagged when you press **Z** at its end gate; inside a lap that already has both gates, it toggles that lap |
 | Delete | Delete the selected mark (when the table has focus) |
 
 Audio is muted by default (checkbox under the video).
@@ -323,7 +324,11 @@ dialogs follow it.
 
 - Each row is a gate pass. The lap time on a row is the time since the previous mark.
 - Click a row to jump the video to that mark.
-- Tick **Bad lap** to exclude that lap (the lap *ending* at that mark). Bad laps are greyed out,
+- Tick **Bad lap** to exclude that lap (the lap *ending* at that mark), or press **X** while the playhead is in
+  the lap. While you are still marking, press **X** during the lap and then **Z** at its finish gate, and that lap
+  is saved as bad; press **X** again before **Z** to cancel, or inside an already-marked lap to undo.
+  The orange **Bad lap (X)** button next to the green mark button does the same thing, and turns solid orange
+  (*Lap will be BAD*) while the lap in progress is flagged. Bad laps are greyed out,
   never counted as a fastest lap, and **break a run of laps**, so "fastest N consecutive" (3 by default) is always N
   good laps in a row. A run never spans two videos.
 - **Delete mark** removes a mark (the two neighbouring laps merge).
