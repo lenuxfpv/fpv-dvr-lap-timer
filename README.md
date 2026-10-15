@@ -232,7 +232,10 @@ LAPS      FASTEST     FASTEST 3
    file in the *Track* column. To set many at once, pick a track in the *Track* box under the list and press *Set track
    for ticked files*; *＋ New track…* creates one that doesn't exist yet. Then click *Add N videos*. Files already in
    the library are greyed out and not added again. Dropping loose files adds them straight away, to the track being
-   viewed.
+   viewed. When you add a folder, each video's track is **suggested from the name of the folder it sits in**
+   (`RaceGOW/Track 1/flight.ts` starts on *Track 1*; a folder named like an existing track, in any capitals, uses that
+   track; videos directly in the folder you picked get no suggestion). Change any of them in the list. Videos that
+   **this app exported** are left out of folder scans (see *DVR folder*).
 2. Select videos and click **Track / date / notes…** to set a track name, session date and notes (see *Tracks and session dates*).
 3. Double-click a video to open it.
 4. Play or scrub to the moment you pass through the gate and press **Z** (or the green button; the key can be
@@ -305,6 +308,7 @@ These are the defaults; every one can be changed (see *Changing the keys* below)
 | PgUp / PgDn | Previous / next gate mark |
 | `[` / `]` | Slower / faster playback (0.1x - 8x) |
 | X | Flag the current lap as bad: during a lap you are still marking, it is flagged when you press **Z** at its end gate; inside a lap that already has both gates, it toggles that lap |
+| `,` / `.` | Move the selected gate mark one frame earlier / later (or the gate the video is parked on); undoable, and the video follows to show the new frame |
 | Ctrl + Z / Ctrl + Y | Undo / redo the last mark change (adding, moving or deleting a gate, or a bad-lap flag); also in the **Edit** menu, which names what it would undo |
 | Delete | Delete the selected mark (when the table has focus) |
 
@@ -333,10 +337,16 @@ dialogs follow it.
 ### Marks and laps table
 
 - Each row is a gate pass. The lap time on a row is the time since the previous mark.
+- **Lap timer on the video:** the lap number and the time into that lap are drawn in the top-left of the picture, like in
+  the exported video (orange for a flagged lap, and the lap in progress after the last gate). Turn it off with
+  **View → Show lap timer on the video**.
 - **Which lap am I in?** Next to the time under the video, a label shows the lap at the playhead (*Lap 3 / 13 ·
   0:09.300*, orange with *BAD* when it is flagged; *Lap 14 in progress* after the last gate, *Before the start gate*
   before the first). That lap's row in the table is framed in teal and scrolls into view. It is the lap the **X** key
   and the **Bad lap** button act on.
+- **Fine-tune a gate:** click a gate in the table and press `,` or `.` to move it one frame earlier or later; the video
+  jumps to the frame it now sits on, and the gate stops at its neighbours instead of crossing them. With no row
+  selected, it moves the gate the video is parked on.
 - **Undo:** **Ctrl+Z** (and **Ctrl+Y** to redo) steps back through the changes you made to the open video's marks:
   gates added, moved or deleted, and bad-lap flags. The history is kept while the video stays open (up to 100
   steps).
@@ -352,6 +362,29 @@ dialogs follow it.
 - **Move mark here** moves the selected mark to the current video position, for fixing a mark that
   was placed slightly off. Click the mark's row (the video jumps to it), step or scrub to the correct
   frame, then press the button.
+
+## DVR folder
+
+Choose the folder your goggles' DVR files end up in once, and the app offers the new ones for you.
+
+- **Library → DVR folder → Choose DVR folder…** picks it (subfolders are included, so a `RaceGOW` folder with one
+  folder per track works). The app checks it each time it starts, and **Check for new videos** does it on demand. If
+  the folder isn't there (card not plugged in), the start-up check says nothing.
+- If no DVR folder is set, **Add folder…** offers to watch the folder you just added (after you click *Add N videos*,
+  never when you cancel): *Watch this folder*, *Not now* (it asks again next time) or *Don't ask again*. Choosing it
+  also counts everything in that list as offered, so none of it comes back. Dropping a folder never asks.
+- New videos open in the same add list as *Add folder…*, with each track suggested from the folder name, a note box
+  and *Add N videos*. Nothing is added until you click. Only videos that aren't in the library yet are listed.
+- Whatever that list showed is remembered, whether you added it or unticked it, so it isn't offered again. Videos are
+  recognised by file name, size and date (not by folder), so renaming or moving the DVR folder, or a track folder,
+  doesn't bring skipped videos back. Close the
+  list with *Cancel* and it is simply offered again next time. **Offer skipped videos again** forgets the list, and
+  **Stop watching** clears the folder.
+- **Exported videos are skipped.** Videos made by the export feature are left out of the DVR check, *Add folder…* and
+  dropped folders. Exports are recognised by the tag the app now writes into each exported file (so a renamed export
+  is still caught) and by the names it suggests (`<track> fastest 3 27.900.mp4`, `<track> laps 3-5 1:02.345.mp4`),
+  which also catches exports made by earlier versions unless you renamed them. Files you pick yourself with *Add
+  videos…* are always listed.
 
 ## Tracks and session dates
 
@@ -399,13 +432,18 @@ on the other.
 
 ## Reports
 
-- **Per video** (right panel): good / total laps, fastest lap, fastest N consecutive laps. In the gate list the
+- **Per video** (right panel): good / total laps, fastest lap, fastest N consecutive laps, the average good lap with
+  its variation (±seconds, how far the good laps typically stray from the average) and consistency (100% = every good
+  lap the same), and 🏆 lines when this video holds the fastest lap or run on its track (it needs
+  another video on the track to beat). In the gate list the
   fastest lap's row is gold and bold, and the rows of the fastest N-lap run are tinted blue; the same two stretches
   are shaded gold and blue on the seek bar. Bad laps are never highlighted.
 - **Lap chart** (right panel): bar chart of one video's laps. Green = fastest, grey = bad, dashed blue
   box = fastest N consecutive. Hover a bar for details.
 - **Library stats** (left panel): pick a track (or *All tracks*) to see its fastest lap and fastest N,
-  a per-video table, and a **By track** table comparing every track. Click any column heading in either table to
+  a per-video table, and a **By track** table comparing every track. Both show **Lap variation** (how far the good laps
+  typically stray from the average lap, in seconds; smaller is steadier) and **Consistency** (100% = every good lap
+  the same time; lower = more up and down). A note under the table says the same. Click any column heading in either table to
   sort by it, and click again to reverse. Times sort by value, and rows with no value (--) always stay at the bottom.
   They open in the usual order: oldest session first, and tracks A to Z.
 - **Progress chart** (in Library stats): one point per video in session-date order, showing fastest lap

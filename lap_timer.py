@@ -164,6 +164,36 @@ def file_identity(path):
     return (vname(path), st.st_size, st.st_mtime_ns)
 
 
+EXPORT_COMMENT = "FPV DVR Lap Timer export"      # written into every exported video, so scans can tell them apart
+# the names the export dialog suggests: "<track> fastest 3 27.900.mp4", "<track> laps 3-5 1:02.345.mp4", "... lap 4 ..."
+_EXPORT_NAME = re.compile(r"(?:fastest \d+|laps? \d+(?:-\d+)?) [\d:.]+(?: \(\d+\))?$", re.IGNORECASE)
+
+
+def export_by_name(path):
+    return bool(_EXPORT_NAME.search(Path(path).stem))
+
+
+def export_by_tag(path):
+    """True if an mp4 carries the tag our export writes (a renamed export is still recognised)."""
+    ffprobe = find_ffprobe()
+    if not ffprobe or Path(path).suffix.lower() != ".mp4":
+        return False
+    try:
+        out = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format_tags=comment", "-of",
+                              "default=nw=1:nk=1", str(path)], capture_output=True, text=True, timeout=15,
+                             creationflags=0x08000000 if sys.platform == "win32" else 0).stdout
+    except Exception:
+        return False
+    return EXPORT_COMMENT in out
+
+
+def seen_key(path):
+    """What the DVR check remembers about a video it has offered: file name, size and modified time (the way the
+    library recognises a file), so renaming or moving its folder doesn't make it new again. Path if unreadable."""
+    ident = file_identity(path)
+    return "|".join(str(x) for x in ident) if ident else str(Path(path).resolve())
+
+
 def probe_video(path):
     """Return (fps, duration_ms) using ffprobe; falls back to (30.0, None)."""
     ffprobe = find_ffprobe()
@@ -271,8 +301,12 @@ def lap_stats(laps, n=None):
         if bestn is None or total < bestn[0]:
             bestn = (total, i)
     goods = [ms for ms, bad in laps if not bad]
-    return {"best": best, "bestn": bestn, "avg": sum(goods) / len(goods) if goods else None,
-            "good": sum(1 for _, b in laps if not b), "total": len(laps)}
+    avg = sum(goods) / len(goods) if goods else None
+    std = (sum((x - avg) ** 2 for x in goods) / len(goods)) ** 0.5 if len(goods) > 1 else None
+    return {"best": best, "bestn": bestn, "avg": avg,
+            "good": sum(1 for _, b in laps if not b), "total": len(laps),
+            "std": std,                                                    # spread of the good laps (ms)
+            "consistency": max(0.0, 100 * (1 - std / avg)) if std is not None else None}   # % : 100 = every lap the same
 
 
 # ----------------------------------------------------------------------------
@@ -301,6 +335,8 @@ class Library:
             -- tracks created by hand before any video is on them (a track otherwise exists only
             -- because some video has its name)
             CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY);
+            -- files the DVR-folder check has already offered (added, skipped or exported by this app), by name|size|mtime
+            CREATE TABLE IF NOT EXISTS watch_seen (path TEXT PRIMARY KEY);
             -- per-track "fastest run of N laps"; a track with no row uses the global default
             CREATE TABLE IF NOT EXISTS track_settings (track TEXT PRIMARY KEY, run_length INTEGER NOT NULL);
         """)
@@ -327,6 +363,17 @@ class Library:
                 self.db.execute("UPDATE videos SET track=? WHERE id=?", (track.strip(), vid))
             if session_date is not KEEP:
                 self.db.execute("UPDATE videos SET session_date=? WHERE id=?", (session_date, vid))
+        self.db.commit()
+
+    def watch_seen(self):
+        return {r[0] for r in self.db.execute("SELECT path FROM watch_seen")}
+
+    def mark_watch_seen(self, paths):
+        self.db.executemany("INSERT OR IGNORE INTO watch_seen(path) VALUES(?)", [(str(p),) for p in paths])
+        self.db.commit()
+
+    def clear_watch_seen(self):
+        self.db.execute("DELETE FROM watch_seen")
         self.db.commit()
 
     def notes_map(self):
@@ -576,6 +623,7 @@ class Library:
         if "notes" not in cols:
             self.db.execute("ALTER TABLE videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
         self.db.execute("CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS watch_seen (path TEXT PRIMARY KEY)")
         self.db.execute("CREATE TABLE IF NOT EXISTS track_settings (track TEXT PRIMARY KEY, run_length INTEGER NOT NULL)")
         self.db.commit()
 
@@ -1127,7 +1175,7 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             *(SYNC_FLAGS_OLD if legacy_sync else SYNC_FLAGS),
             "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p",
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
-            *audio_enc, "-movflags", "+faststart", str(out)]
+            *audio_enc, "-metadata", f"comment={EXPORT_COMMENT}", "-movflags", "+faststart", str(out)]
     return argv, clip_ms + extra_s * 1000
 
 
@@ -2065,7 +2113,7 @@ class AddVideosDialog(QDialog):
     Files already in the library are shown but not ticked."""
     NEW_TRACK_TEXT = "＋ New track…"
 
-    def __init__(self, entries, tracks, default_track="", parent=None, title="Add videos", intro=""):
+    def __init__(self, entries, tracks, default_track="", parent=None, title="Add videos", intro="", suggest=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(900, 560)
@@ -2073,6 +2121,11 @@ class AddVideosDialog(QDialog):
         if screen:
             self.setMaximumSize(screen.width(), screen.height())
         self.tracks = list(tracks)                  # track names offered in every dropdown
+        suggest = suggest or {}                     # {str(path): track}: the track each file starts on (else default_track)
+        for t in set(suggest.values()):
+            if t and t.lower() not in {x.lower() for x in self.tracks}:
+                self.tracks.append(t)
+        self.tracks.sort(key=str.lower)
         # entries: [(path, shown name, size in bytes or None, already in the library)]
         rows = sorted(entries, key=lambda e: e[1].lower())
         self.table = QTableWidget(len(rows), 4)
@@ -2093,7 +2146,7 @@ class AddVideosDialog(QDialog):
                          f"{size / 1e6:,.0f} MB" if size >= 1e6 else "<1 MB")
             size_item = QTableWidgetItem(size_text)
             combo = QComboBox()
-            self.fill_combo(combo, default_track)
+            self.fill_combo(combo, suggest.get(str(path), default_track))
             combo.activated.connect(lambda _i, c=combo: self.on_combo(c))
             if known:
                 for it in (tick, name, size_item):
@@ -2401,6 +2454,10 @@ class DetailsDialog(QDialog):
 # ----------------------------------------------------------------------------
 # Stats dialog
 # ----------------------------------------------------------------------------
+LAP_VARIATION_HELP = ("how far your good laps typically stray from your average lap, in seconds (smaller = steadier).")
+CONSISTENCY_HELP = ("100% means every good lap took the same time; the more your laps go up and down, the lower it is.")
+
+
 class SortItem(QTableWidgetItem):
     """A table cell that sorts by `key` instead of its text (so 1:02.345 follows 25.737 and 10 follows 9).
     A key of None means 'no value' (shown as --): those rows always sort last, whichever way the column goes."""
@@ -2423,7 +2480,8 @@ class StatsDialog(QDialog):
         super().__init__(parent)
         self.lib = lib
         self.setWindowTitle("Library statistics")
-        self.resize(960, 640)
+        avail = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+        self.resize(min(1180, avail.width() - 40), min(640, avail.height() - 60))   # wide enough for every column
         lay = QVBoxLayout(self)
 
         top = QHBoxLayout()
@@ -2442,16 +2500,27 @@ class StatsDialog(QDialog):
         self.dup_label.setStyleSheet("color:#ef6c00; font-weight:bold")
         lay.addWidget(self.dup_label)
 
-        self.table = QTableWidget(0, 9)
+        self.table = QTableWidget(0, 11)
         self.table.setHorizontalHeaderLabels(["Video", "Track", "Session date", "Laps (good/total)",
-                                              "Fastest lap", "Run (laps)", "Fastest run", "Avg good lap", "Notes"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+                                              "Fastest lap", "Run (laps)", "Fastest run", "Avg good lap",
+                                              "Lap variation", "Consistency", "Notes"])
+        self.table.horizontalHeaderItem(8).setToolTip(LAP_VARIATION_HELP)
+        self.table.horizontalHeaderItem(9).setToolTip(CONSISTENCY_HELP)
+        hh = self.table.horizontalHeader()                   # every column fits its content; the notes take the rest
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        hh.setStretchLastSection(True)
         lay.addWidget(self.table, 3)
+        legend = QLabel(f"<b>Lap variation:</b> {LAP_VARIATION_HELP} &nbsp;&nbsp; <b>Consistency:</b> {CONSISTENCY_HELP}")
+        legend.setWordWrap(True)
+        legend.setStyleSheet("color:gray")
+        lay.addWidget(legend)
 
         lay.addWidget(QLabel("<b>By track</b> (all videos, ignoring the filter above)"))
-        self.by_track = QTableWidget(0, 7)
+        self.by_track = QTableWidget(0, 9)
         self.by_track.setHorizontalHeaderLabels(["Track", "Videos", "Laps (good/total)", "Fastest lap",
-                                                 "Run (laps)", "Fastest run", "Avg good lap"])
+                                                 "Run (laps)", "Fastest run", "Avg good lap", "Lap variation", "Consistency"])
+        self.by_track.horizontalHeaderItem(7).setToolTip(LAP_VARIATION_HELP)
+        self.by_track.horizontalHeaderItem(8).setToolTip(CONSISTENCY_HELP)
         self.by_track.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         lay.addWidget(self.by_track, 2)
         for t in (self.table, self.by_track):
@@ -2488,8 +2557,10 @@ class StatsDialog(QDialog):
                 best = (s["best"][0], name)
             if n and s["bestn"] and (bestn is None or s["bestn"][0] < bestn[0]):
                 bestn = (s["bestn"][0], name)
-        return {"best": best, "bestn": bestn, "good": good, "total": total,
-                "avg": sum(goods) / len(goods) if goods else None}
+        avg = sum(goods) / len(goods) if goods else None
+        std = (sum((x - avg) ** 2 for x in goods) / len(goods)) ** 0.5 if len(goods) > 1 else None
+        return {"best": best, "bestn": bestn, "good": good, "total": total, "avg": avg, "std": std,
+                "consistency": max(0.0, 100 * (1 - std / avg)) if std is not None else None}
 
     def rebuild(self):
         lib, track = self.lib, self.combo.currentData()
@@ -2539,10 +2610,13 @@ class StatsDialog(QDialog):
             vals = [name, t or "--", ds, f"{s['good']}/{s['total']}",
                     fmt(s["best"][0]) if s["best"] else "--", str(n),
                     fmt(s["bestn"][0]) if s["bestn"] else "--",
-                    fmt(s["avg"]) if s["avg"] else "--", note]
+                    fmt(s["avg"]) if s["avg"] else "--",
+                    f"±{s['std'] / 1000:.2f} s" if s["std"] is not None else "--",
+                    f"{s['consistency']:.0f}%" if s["consistency"] is not None else "--", note]
             keys = [name.lower(), t.lower() if t else None, (d.toordinal(), name.lower()) if d else None,
                     (s["good"], s["total"]), s["best"][0] if s["best"] else None, n,
-                    s["bestn"][0] if s["bestn"] else None, s["avg"] or None, note.lower() or None]
+                    s["bestn"][0] if s["bestn"] else None, s["avg"] or None,
+                    s["std"], s["consistency"], note.lower() or None]
             for c, (v, k) in enumerate(zip(vals, keys)):
                 self.table.setItem(r, c, SortItem(v, k))
 
@@ -2553,9 +2627,12 @@ class StatsDialog(QDialog):
             vals = [t or "(no track)", str(len(groups[t])), f"{a['good']}/{a['total']}",
                     fmt(a["best"][0]) if a["best"] else "--", str(n),
                     fmt(a["bestn"][0]) if a["bestn"] else "--",
-                    fmt(a["avg"]) if a["avg"] else "--"]
+                    fmt(a["avg"]) if a["avg"] else "--",
+                    f"±{a['std'] / 1000:.2f} s" if a["std"] is not None else "--",
+                    f"{a['consistency']:.0f}%" if a["consistency"] is not None else "--"]
             keys = [t.lower() if t else None, len(groups[t]), (a["good"], a["total"]),
-                    a["best"][0] if a["best"] else None, n, a["bestn"][0] if a["bestn"] else None, a["avg"] or None]
+                    a["best"][0] if a["best"] else None, n, a["bestn"][0] if a["bestn"] else None, a["avg"] or None,
+                    a["std"], a["consistency"]]
             for c, (v, k) in enumerate(zip(vals, keys)):
                 self.by_track.setItem(r, c, SortItem(v, k))
         for t, sec, order in views:
@@ -2737,6 +2814,8 @@ KEY_ACTIONS = [
     ("slower", "Slower playback", "["),
     ("faster", "Faster playback", "]"),
     ("bad_lap", "Mark / unmark the lap at the playhead as bad", "X"),
+    ("nudge_back", "Move the selected gate mark one frame earlier", ","),
+    ("nudge_fwd", "Move the selected gate mark one frame later", "."),
     ("undo", "Undo the last mark change (add, move, delete, bad-lap flag)", "Ctrl+Z"),
     ("redo", "Redo", "Ctrl+Y"),
     ("delete_mark", "Delete the selected mark (when the table has focus)", "Delete"),
@@ -3484,6 +3563,11 @@ class MainWindow(QMainWindow):
         self.video_widget.setMinimumSize(480, 270)
         self.player.setVideoOutput(self.video_widget)
         self.video_widget.wheel.connect(self.on_wheel)
+        self.lap_overlay = QLabel(self.video_widget)         # lap number and running lap time, drawn over the picture
+        self.lap_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.lap_overlay.hide()
+        self._overlay_style = None
+        self.video_widget.installEventFilter(self)           # to re-place the overlay when the video is resized
         self.video_widget.videoSink().videoFrameChanged.connect(self.on_frame)
         self.player.mediaStatusChanged.connect(self.on_media_status)
         self.player.durationChanged.connect(lambda d: self.slider.setRange(0, d))
@@ -3765,7 +3849,8 @@ class MainWindow(QMainWindow):
             "shuttle_fwd": lambda: self.key_shuttle(1),
             "prev_gate": lambda: self.jump_mark(-1), "next_gate": lambda: self.jump_mark(1),
             "slower": lambda: self.change_speed(-1), "faster": lambda: self.change_speed(1),
-            "bad_lap": self.toggle_bad_lap, "undo": self.undo, "redo": self.redo, "delete_mark": self.delete_key,
+            "bad_lap": self.toggle_bad_lap,
+            "nudge_back": lambda: self.nudge_mark(-1), "nudge_fwd": lambda: self.nudge_mark(1), "undo": self.undo, "redo": self.redo, "delete_mark": self.delete_key,
         }
         self.shortcuts = {}
         for kid, fn in handlers.items():
@@ -3790,6 +3875,16 @@ class MainWindow(QMainWindow):
         lib_menu.addAction("&Merge library…").triggered.connect(self.merge_library)
         lib_menu.addSeparator()
         lib_menu.addAction("&Compare laps…").triggered.connect(self.open_compare)
+        lib_menu.addSeparator()
+        dvr_menu = lib_menu.addMenu("&DVR folder")
+        dvr_menu.addAction("&Choose DVR folder…").triggered.connect(self.choose_dvr_folder)
+        self.dvr_check_act = dvr_menu.addAction("Check for &new videos")
+        self.dvr_check_act.triggered.connect(lambda: self.check_dvr_folder(manual=True))
+        self.dvr_again_act = dvr_menu.addAction("Offer &skipped videos again")
+        self.dvr_again_act.triggered.connect(self.offer_skipped_again)
+        self.dvr_stop_act = dvr_menu.addAction("S&top watching")
+        self.dvr_stop_act.triggered.connect(self.stop_watching)
+        dvr_menu.aboutToShow.connect(self.refresh_dvr_menu)
 
         # --- Edit > undo / redo of mark changes
         edit_menu = self.menuBar().addMenu("&Edit")
@@ -3805,6 +3900,11 @@ class MainWindow(QMainWindow):
         self.library_act.setChecked(self.settings.value("show_library", True, type=bool))
         self.library_act.toggled.connect(self.set_library_visible)
         view_menu.addAction(self.library_act)
+        self.overlay_act = QAction("Show &lap timer on the video", self, checkable=True)
+        self.overlay_act.setToolTip("Draw the lap number and the running lap time over the video, like the export does")
+        self.overlay_act.setChecked(self.settings.value("show_lap_overlay", True, type=bool))
+        self.overlay_act.toggled.connect(self.set_overlay)
+        view_menu.addAction(self.overlay_act)
         self.compact_act = QAction("&Compact controls", self, checkable=True)
         self.compact_act.setToolTip("Shorter buttons and no hint line, so the window fits a small screen")
         self.compact_act.setStatusTip("Shorter buttons and no hint line, so the window fits a small screen")
@@ -3844,6 +3944,52 @@ class MainWindow(QMainWindow):
         if self.x() + self.width() > avail.right() or self.y() + self.height() > avail.bottom():
             self.move(max(avail.left(), min(self.x(), avail.right() - self.width())),
                       max(avail.top(), min(self.y(), avail.bottom() - self.height() - 40)))
+
+    def set_overlay(self, on):
+        self.settings.setValue("show_lap_overlay", on)
+        self._lap_key = None
+        self.update_lap_indicator()
+
+    def place_overlay(self):
+        """Top-left corner of the video, text size following the video's height."""
+        h = self.video_widget.height()
+        size = max(13, int(h * 0.05))
+        f = self.lap_overlay.font()
+        f.setPixelSize(size)
+        f.setBold(True)
+        self.lap_overlay.setFont(f)
+        self.lap_overlay.adjustSize()
+        self.lap_overlay.move(max(6, int(size * 0.5)), max(6, int(size * 0.5)))
+        self.lap_overlay.raise_()
+
+    def update_overlay(self, row, bad):
+        """Lap number and the time into the lap (from the frame on screen), over the video."""
+        ov = self.lap_overlay
+        if self.vid is None or not self.mark_rows or not getattr(self, "overlay_act", None) or not self.overlay_act.isChecked():
+            ov.hide()
+            return
+        here = self.cursor_ms
+        if row == 0:                                         # before the start gate
+            ov.hide()
+            return
+        if row is None:                                      # after the last gate: the lap being flown
+            n_done = len(self.mark_rows) - 1
+            head, since = f"LAP {n_done + 1}", here - self.mark_rows[-1][1]
+        else:
+            head = f"LAP {row} / {len(self.mark_rows) - 1}"
+            since = here - self.mark_rows[row - 1][1]
+        text = f"{head}\n{fmt_overlay(max(0, since))}"
+        style = "bad" if bad else "ok"
+        if style != self._overlay_style:
+            ov.setStyleSheet("background: rgba(0,0,0,150); padding: 3px 9px; border-radius: 4px; "
+                             f"color: {'#ff9800' if bad else 'white'};")
+            self._overlay_style = style
+        if ov.text() != text:
+            ov.setText(text)
+            ov.adjustSize()
+        if not ov.isVisible():
+            self.place_overlay()
+            ov.show()
 
     def set_library_visible(self, on):
         self.settings.setValue("show_library", on)
@@ -4253,11 +4399,56 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Add videos from folder", str(Path.home()))
         if folder:
             paths = [p for p in Path(folder).rglob("*") if p.suffix.lower() in VIDEO_EXTS]
-            self.add_with_preview(paths, root=Path(folder), what=f"in {folder}")
+            self.add_with_preview(paths, root=Path(folder), what=f"in {folder}", offer_watch=True)
 
-    def add_with_preview(self, paths, root=None, what="", title="Add videos from folder"):
+    def without_exports(self, paths):
+        """Split off the videos this app exported (by name, or by the tag it writes into the file).
+        -> (the rest, how many were left out, the left-out paths)"""
+        paths = [Path(p) for p in paths]
+        kept, out, probe = [], [], []
+        for p in paths:
+            if export_by_name(p):
+                out.append(p)
+            elif p.suffix.lower() == ".mp4" and find_ffprobe():
+                probe.append(p)                              # needs a look inside the file
+            else:
+                kept.append(p)
+        if probe:
+            dlg = QProgressDialog("Checking videos…", "", 0, len(probe), self)
+            dlg.setCancelButton(None)
+            dlg.setWindowModality(Qt.WindowModality.WindowModal)
+            dlg.setMinimumDuration(600)                      # only shows up if it takes a while
+            for i, p in enumerate(probe):
+                dlg.setValue(i)
+                (out if export_by_tag(p) else kept).append(p)
+            dlg.setValue(len(probe))
+        return kept, len(out), out
+
+    def suggest_tracks(self, paths, root):
+        """{str(path): track} from the folder each video sits in below `root` (videos directly in `root` get none).
+        A folder named like an existing track (any capitals) uses that track's spelling."""
+        by_lower = {t.lower(): t for t in self.lib.tracks()}
+        out = {}
+        for p in paths:
+            p = Path(p)
+            try:
+                rel = p.relative_to(root)
+            except ValueError:
+                continue
+            if len(rel.parts) > 1:
+                name = " ".join(p.parent.name.split())
+                if name:
+                    out[str(p)] = by_lower.get(name.lower(), name)
+        return out
+
+    def add_with_preview(self, paths, root=None, what="", title="Add videos from folder", watch=False,
+                         filter_exports=True, offer_watch=False):
         """Show the video files that would be added (picked files, or a folder and its subfolders), let the user
-        untick the ones they don't want and choose a track for each, then add the rest."""
+        untick the ones they don't want and choose a track for each, then add the rest. Videos exported by this
+        app are left out of a folder scan. With `root`, each video's track is suggested from its subfolder."""
+        left_out, left_out_paths = 0, []
+        if root is not None and filter_exports:
+            paths, left_out, left_out_paths = self.without_exports(paths)
         known_paths = {str(Path(p).resolve()) for _, p, _ in self.lib.videos()}
         known_ids = {i for i in (file_identity(p) for _, p, _ in self.lib.videos()) if i}
         entries = []
@@ -4280,19 +4471,49 @@ class MainWindow(QMainWindow):
                                     f"No video files ({', '.join(sorted(VIDEO_EXTS))}) were found {what}.")
             return
         n_sub = len({Path(shown).parent for _, shown, _, _ in entries if Path(shown).parent != Path(".")})
+        suggest = self.suggest_tracks([e[0] for e in entries if not e[3]], root) if root is not None else {}
         intro = (f"{len(entries)} video file(s) found {what}" + (f", in {n_sub} subfolder(s)" if n_sub else "") +
                  ". Untick any you don't want to add, and choose the track for each file (or for all the ticked "
-                 "files at once with the Track box below). The note, if you type one, is saved on every video you add.")
+                 "files at once with the Track box below)." +
+                 (" The track is suggested from each video's folder name; change any you like." if suggest else "") +
+                 " The note, if you type one, is saved on every video you add."
+                 + (f" ({left_out} video(s) exported by this app were left out.)" if left_out else ""))
         shown_track = self.track_filter.currentData()
         default_track = shown_track if isinstance(shown_track, str) and shown_track not in (NEW_TRACK, RENAME_TRACK, DELETE_TRACK) else ""
-        dlg = AddVideosDialog(entries, self.lib.tracks(), default_track, self, title, intro)
+        dlg = AddVideosDialog(entries, self.lib.tracks(), default_track, self, title, intro, suggest)
         if dlg.exec():
+            if watch:                                        # whatever was offered, added or unticked, is not offered again
+                self.lib.mark_watch_seen([seen_key(e[0]) for e in entries if not e[3]])
             chosen = dlg.selected()
             used = {t for _, t in chosen}
             if shown_track is not None and shown_track not in used:      # keep the new videos visible
                 self.pending_filter = next(iter(used)) if len(used) == 1 else None
             self.add_paths([p for p, _ in chosen], tracks={str(Path(p).resolve()): t for p, t in chosen},
                            note=dlg.note())
+            if offer_watch and root is not None:
+                self.offer_watch_folder(root, [e[0] for e in entries if not e[3]] + list(left_out_paths))
+
+    def offer_watch_folder(self, folder, offered):
+        """After 'Add folder…': if no DVR folder is watched yet, offer to watch this one (never nagging: 'Don't ask
+        again' is remembered). Everything the list showed counts as offered, so none of it comes back."""
+        if str(self.settings.value("watch_folder", "") or "") or self.settings.value("watch_prompt_off", False, type=bool):
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Watch this folder?")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(f"Watch {folder} for new videos?\n\nEach time the app starts it will check this folder (and its "
+                    "subfolders) and offer any new videos for you to add, with the track suggested from the folder "
+                    "name. Nothing is added without your click. You can change or stop this under Library → DVR folder.")
+        watch = box.addButton("Watch this folder", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+        never = box.addButton("Don't ask again", QMessageBox.ButtonRole.DestructiveRole)
+        box.exec()
+        if box.clickedButton() is watch:
+            self.settings.setValue("watch_folder", str(folder))
+            self.lib.mark_watch_seen([seen_key(p) for p in offered])
+            self.statusBar().showMessage(f"Watching {folder}. Change it under Library → DVR folder.", 8000)
+        elif box.clickedButton() is never:
+            self.settings.setValue("watch_prompt_off", True)
 
     def add_paths(self, paths, tracks=None, note=""):
         """Add videos to the library. `tracks` ({resolved path: track name, '' = none}) sets each new video's
@@ -4864,6 +5085,8 @@ class MainWindow(QMainWindow):
     def eventFilter(self, obj, ev):
         """Hold-to-play keys (default Shift+Left/Right): play at 2x while held, stop on release."""
         t = ev.type()
+        if obj is self.video_widget and t == QEvent.Type.Resize:
+            self.place_overlay()
         if t == QEvent.Type.KeyPress:
             k = ev.key()
             if self.hold_key is not None and k == self.hold_key:
@@ -5084,6 +5307,7 @@ class MainWindow(QMainWindow):
             else:
                 row, bad = i, bool(self.mark_rows[i][2])
                 text = f"Lap {i} / {n} · {fmt(self.mark_rows[i][1] - self.mark_rows[i - 1][1])}" + (" · BAD" if bad else "")
+        self.update_overlay(self.lap_at(self.cursor_ms) if self.mark_rows else None, bad)   # (every frame: the time runs)
         if (text, bad, row) == self._lap_key:
             return
         moved = (self._lap_key or (None, None, None))[2] != row
@@ -5317,9 +5541,35 @@ class MainWindow(QMainWindow):
             bestn = f"{fmt(s['bestn'][0])} <small>(laps {i + 1}–{i + n})</small>"
         else:
             bestn = f"-- <small>(needs {n} good laps in a row)</small>"
+        extra = ""
+        if s["std"] is not None:                             # how steady the good laps are
+            extra = (f"<br>Average lap: <b>{fmt(s['avg'])}</b> <small>(±{s['std'] / 1000:.2f} s, "
+                     f"{s['consistency']:.0f}% consistent)</small>")
+        records = self.track_records()
+        if records:
+            extra += "<br>" + "<br>".join(f"🏆 {r}" for r in records)
         self.stats_label.setText(
             f"<div style='font-size:15px'>Laps: <b>{s['good']}</b> good / {s['total']} total<br>"
-            f"Fastest lap: <b>{best}</b><br>Fastest {n} consecutive: <b>{bestn}</b></div>")
+            f"Fastest lap: <b>{best}</b><br>Fastest {n} consecutive: <b>{bestn}</b>{extra}</div>")
+
+    def track_records(self):
+        """Texts for the records the open video holds on its track (needs at least one other video there to beat)."""
+        if self.vid is None:
+            return []
+        track = self.lib.all_meta().get(self.vid, ("", None))[0]
+        ids = [v for v in self.lib.video_ids(track) if v != self.vid] if track else []
+        if not ids:
+            return []
+        n = self.video_run()
+        mine = lap_stats([(self.mark_rows[i][1] - self.mark_rows[i - 1][1], bool(self.mark_rows[i][2]))
+                          for i in range(1, len(self.mark_rows))], n)
+        others = [lap_stats(self.lib.laps(v), n) for v in ids]
+        out = []
+        for field, text in (("best", "Track record lap"), ("bestn", f"Track record {n} consecutive")):
+            theirs = [o[field][0] for o in others if o[field]]
+            if mine[field] and theirs and mine[field][0] < min(theirs):
+                out.append(f"{text}: {fmt(mine[field][0])}")
+        return out
 
     def on_row_clicked(self, row, col):
         if col != self.COL_BAD and 0 <= row < len(self.mark_rows):
@@ -5379,6 +5629,37 @@ class MainWindow(QMainWindow):
         self.refresh_library()
         self.statusBar().showMessage(f"Mark moved to {fmt(t)}", 3000)
 
+    def nudge_mark(self, n):
+        """Move the selected gate (or the one the video is parked on) by n frames, keeping it clear of its neighbours."""
+        if self.vid is None or not self.mark_rows:
+            self.statusBar().showMessage("Open a video with gate marks first", 3000)
+            return
+        d = self.frame_dur()
+        r = self.selected_row()
+        if r is None:                                        # no row picked: use the gate under the playhead
+            r = next((i for i, m in enumerate(self.mark_rows) if abs(m[1] - self.cursor_ms) <= d), None)
+        if r is None:
+            self.statusBar().showMessage("Click a gate in the table (or park the video on one), then nudge it", 4000)
+            return
+        mid, old = self.mark_rows[r][0], self.mark_rows[r][1]
+        new = int(round(old + n * d)) or old + n
+        lo = self.mark_rows[r - 1][1] + 1 if r > 0 else 0
+        hi = self.mark_rows[r + 1][1] - 1 if r + 1 < len(self.mark_rows) else None
+        new = max(lo, new) if hi is None else min(max(lo, new), hi)
+        if new == old:
+            self.statusBar().showMessage("That gate can't move any further: it is next to its neighbour", 3000)
+            return
+        self.begin_edit("nudge gate")
+        self.lib.move_mark(mid, new)
+        self.load_marks()
+        self.table.selectRow(r)                              # the order can't change: neighbours are respected
+        self.refresh_library()
+        self.set_shuttle(0)
+        self.player.pause()
+        self.seek(new, bias=0.25 * d)                        # show the frame the gate now sits on
+        self.statusBar().showMessage(f"{'Start' if r == 0 else f'Gate {r}'} moved a frame "
+                                     f"{'earlier' if n < 0 else 'later'}: {fmt(new)}", 3000)
+
     def export_bestn_video(self):
         if self.vid is None:
             self.statusBar().showMessage("Open a video first", 3000)
@@ -5390,6 +5671,61 @@ class MainWindow(QMainWindow):
                                     f"This video needs {n} good laps in a row (bad laps break the run) first.")
             return
         ExportDialog(win, self).exec()
+
+    # ---- DVR folder -----------------------------------------------------------
+    def choose_dvr_folder(self):
+        start = str(self.settings.value("watch_folder", "") or Path.home())
+        folder = QFileDialog.getExistingDirectory(self, "Choose your DVR folder (subfolders are included)", start)
+        if folder:
+            self.settings.setValue("watch_folder", folder)
+            self.check_dvr_folder(manual=True)
+
+    def refresh_dvr_menu(self):
+        folder = str(self.settings.value("watch_folder", "") or "")
+        for act in (self.dvr_check_act, self.dvr_again_act, self.dvr_stop_act):
+            act.setEnabled(bool(folder))
+        self.dvr_check_act.setToolTip(folder or "No DVR folder chosen yet")
+        self.dvr_check_act.setText("Check for &new videos" + (f"  ({Path(folder).name})" if folder else ""))
+
+    def stop_watching(self):
+        self.settings.setValue("watch_folder", "")
+        self.statusBar().showMessage("No longer watching a DVR folder", 4000)
+
+    def offer_skipped_again(self):
+        self.lib.clear_watch_seen()
+        self.check_dvr_folder(manual=True)
+
+    def check_dvr_folder(self, manual=False):
+        """Offer the videos in the DVR folder (and its subfolders) that are not in the library yet. Silent at
+        start-up when there is nothing new, or the folder isn't there (card not plugged in)."""
+        folder = str(self.settings.value("watch_folder", "") or "")
+        if not folder:
+            if manual:
+                QMessageBox.information(self, "DVR folder", "Choose your DVR folder first (Library → DVR folder).")
+            return
+        root = Path(folder)
+        if not root.is_dir():
+            if manual:
+                QMessageBox.warning(self, "DVR folder not found", f"This folder can't be found right now:\n{folder}")
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            found = [p for p in root.rglob("*") if p.suffix.lower() in VIDEO_EXTS and p.is_file()]
+            known_paths = {str(Path(p).resolve()) for _, p, _ in self.lib.videos()}
+            known_ids = {i for i in (file_identity(p) for _, p, _ in self.lib.videos()) if i}
+            seen = self.lib.watch_seen()
+            fresh = [p for p in found if seen_key(p) not in seen and str(p.resolve()) not in known_paths
+                     and file_identity(p) not in known_ids]
+        finally:
+            QApplication.restoreOverrideCursor()
+        fresh, n_out, out = self.without_exports(fresh)
+        if out:
+            self.lib.mark_watch_seen([seen_key(p) for p in out])               # no need to look inside them again
+        if not fresh:
+            self.statusBar().showMessage(f"No new videos in {folder}" + (f" ({n_out} exported by this app left out)" if n_out else ""), 5000)
+            return
+        self.add_with_preview(fresh, root=root, what=f"in {folder}", title="New videos in your DVR folder",
+                              watch=True, filter_exports=False)
 
     def open_compare(self):
         track = None
@@ -5505,6 +5841,7 @@ def main():
     install_error_handler(lambda: win)
     win.show()
     QTimer.singleShot(600, win.offer_ffmpeg_on_start)      # after the window is up
+    QTimer.singleShot(1500, win.check_dvr_folder)          # new videos in the DVR folder, if one is chosen
     # allow: lap_timer.py video1.ts video2.mp4
     if len(sys.argv) > 1:
         win.open_paths(sys.argv[1:])
