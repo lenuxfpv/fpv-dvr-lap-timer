@@ -27,7 +27,7 @@ from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QFrame, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
     QHeaderView, QInputDialog, QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-    QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QSplitter, QStyle, QStyledItemDelegate, QStyleOptionSlider, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QWidget,
 )
 
@@ -337,6 +337,8 @@ class Library:
             CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY);
             -- files the DVR-folder check has already offered (added, skipped or exported by this app), by name|size|mtime
             CREATE TABLE IF NOT EXISTS watch_seen (path TEXT PRIMARY KEY);
+            -- the track you last gave videos from a folder of this name (so the add list suggests it next time)
+            CREATE TABLE IF NOT EXISTS folder_tracks (folder TEXT PRIMARY KEY, track TEXT NOT NULL);
             -- per-track "fastest run of N laps"; a track with no row uses the global default
             CREATE TABLE IF NOT EXISTS track_settings (track TEXT PRIMARY KEY, run_length INTEGER NOT NULL);
         """)
@@ -363,6 +365,16 @@ class Library:
                 self.db.execute("UPDATE videos SET track=? WHERE id=?", (track.strip(), vid))
             if session_date is not KEEP:
                 self.db.execute("UPDATE videos SET session_date=? WHERE id=?", (session_date, vid))
+        self.db.commit()
+
+    def folder_tracks(self):
+        """{folder name in lower case: track}"""
+        return {r[0]: r[1] for r in self.db.execute("SELECT folder, track FROM folder_tracks")}
+
+    def remember_folder_tracks(self, mapping):
+        for folder, track in mapping.items():
+            self.db.execute("INSERT INTO folder_tracks(folder, track) VALUES(?,?) "
+                            "ON CONFLICT(folder) DO UPDATE SET track=excluded.track", (folder.lower(), track))
         self.db.commit()
 
     def watch_seen(self):
@@ -434,6 +446,7 @@ class Library:
         if not new or new == old:
             return
         self.db.execute("UPDATE videos SET track=? WHERE track=?", (new, old))
+        self.db.execute("UPDATE folder_tracks SET track=? WHERE track=?", (new, old))
         self.db.execute("DELETE FROM extra_tracks WHERE name=?", (old,))
         self.db.execute("INSERT OR IGNORE INTO extra_tracks(name) VALUES(?)", (new,))
         if self.db.execute("SELECT 1 FROM track_settings WHERE track=?", (new,)).fetchone():
@@ -445,6 +458,7 @@ class Library:
     def delete_track(self, name):
         """Remove a track. Its videos stay in the library, with no track."""
         self.db.execute("UPDATE videos SET track='' WHERE track=?", (name,))
+        self.db.execute("DELETE FROM folder_tracks WHERE track=?", (name,))
         self.db.execute("DELETE FROM extra_tracks WHERE name=?", (name,))
         self.db.execute("DELETE FROM track_settings WHERE track=?", (name,))
         self.db.commit()
@@ -624,6 +638,7 @@ class Library:
             self.db.execute("ALTER TABLE videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
         self.db.execute("CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY)")
         self.db.execute("CREATE TABLE IF NOT EXISTS watch_seen (path TEXT PRIMARY KEY)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS folder_tracks (folder TEXT PRIMARY KEY, track TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS track_settings (track TEXT PRIMARY KEY, run_length INTEGER NOT NULL)")
         self.db.commit()
 
@@ -665,6 +680,9 @@ class Library:
             if src.execute("SELECT 1 FROM sqlite_master WHERE name='extra_tracks'").fetchone():
                 for (name,) in src.execute("SELECT name FROM extra_tracks"):       # empty tracks come across too
                     self.db.execute("INSERT OR IGNORE INTO extra_tracks(name) VALUES(?)", (name,))
+            if src.execute("SELECT 1 FROM sqlite_master WHERE name='folder_tracks'").fetchone():
+                for folder, track in src.execute("SELECT folder, track FROM folder_tracks"):     # keep ours if both have one
+                    self.db.execute("INSERT OR IGNORE INTO folder_tracks(folder, track) VALUES(?,?)", (folder, track))
             if src.execute("SELECT 1 FROM sqlite_master WHERE name='track_settings'").fetchone():
                 for track, n in src.execute("SELECT track, run_length FROM track_settings"):   # keep ours if both have one
                     self.db.execute("INSERT OR IGNORE INTO track_settings(track, run_length) VALUES(?,?)", (track, n))
@@ -2113,8 +2131,10 @@ class AddVideosDialog(QDialog):
     Files already in the library are shown but not ticked."""
     NEW_TRACK_TEXT = "＋ New track…"
 
-    def __init__(self, entries, tracks, default_track="", parent=None, title="Add videos", intro="", suggest=None):
+    def __init__(self, entries, tracks, default_track="", parent=None, title="Add videos", intro="", suggest=None,
+                 skip_ok=False):
         super().__init__(parent)
+        self.skip_ok = skip_ok                      # DVR check: with nothing ticked the button can still 'skip' them all
         self.setWindowTitle(title)
         self.resize(900, 560)
         screen = self.screen().availableGeometry() if self.screen() else None
@@ -2256,8 +2276,12 @@ class AddVideosDialog(QDialog):
         n, total = len(self.selected()), len(self.checkable_rows())
         known = self.table.rowCount() - total
         self.count.setText(f"{n} of {total} selected" + (f"  ({known} already in the library)" if known else ""))
-        self.add.setText(f"Add {n} video{'s' if n != 1 else ''}")
-        self.add.setEnabled(n > 0)
+        if n == 0 and self.skip_ok and total:
+            self.add.setText(f"Don't add {'it' if total == 1 else 'these'} (never offer again)")
+            self.add.setEnabled(True)
+        else:
+            self.add.setText(f"Add {n} video{'s' if n != 1 else ''}")
+            self.add.setEnabled(n > 0)
 
 
 # ----------------------------------------------------------------------------
@@ -2927,6 +2951,30 @@ NO_PENDING = object()
 ROLE_INFO = Qt.ItemDataRole.UserRole + 1     # dict describing a library entry, painted by LibraryDelegate
 
 
+class ElidedLabel(QLabel):
+    """A one-line label that shortens its text with … to the room it has, instead of forcing the window wider.
+    The full text is in the tooltip."""
+    def __init__(self):
+        super().__init__()
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def set_full_text(self, text):
+        self._full = text
+        self.setToolTip(text)
+        self.refit()
+
+    def refit(self):
+        super().setText(self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideRight, max(0, self.width())))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.refit()
+
+    def minimumSizeHint(self):
+        return QSize(30, super().minimumSizeHint().height())
+
+
 class LibraryDelegate(QStyledItemDelegate):
     """Library entry: big track name, a LAPS / FASTEST / FASTEST N row, then a small file name line."""
     HEIGHT = 78
@@ -2961,7 +3009,7 @@ class LibraryDelegate(QStyledItemDelegate):
         y = r.top() + 5
 
         # --- row 1: track name (left), status badges (right)
-        badges = ("🔒 " if info.get("locked") else "") + ("⚡ " if info["ready"] else "") + ("⚠ duplicate" if info["dup"] else "") + \
+        badges = ("📝 " if info.get("note") else "") + ("🔒 " if info.get("locked") else "") + ("⚡ " if info["ready"] else "") + ("⚠ duplicate" if info["dup"] else "") + \
                  ("⚠ not found" if not info["exists"] else "")
         p.setFont(font(0.9))
         bw = QFontMetrics(p.font()).horizontalAdvance(badges) + 4 if badges else 0
@@ -3641,6 +3689,8 @@ class MainWindow(QMainWindow):
         fix = QPushButton("Fix paths…")
         fix.setToolTip("Update many videos at once after moving them or copying the library to another PC")
         fix.clicked.connect(self.fix_paths)
+        self.dvr_btn = QPushButton()
+        self.dvr_btn.clicked.connect(self.on_dvr_button)
         clear = QPushButton("Clear smooth copies…")
         clear.setToolTip("Delete the cached smooth-scrub copies to free disk space (they can be rebuilt)")
         clear.clicked.connect(self.clear_proxies)
@@ -3658,7 +3708,8 @@ class MainWindow(QMainWindow):
         if not find_tool("ffmpeg"):
             self.build_all_btn.setEnabled(False); self.build_on_add.setEnabled(False)
             self.build_all_btn.setToolTip("Needs ffmpeg installed")
-        ll.addLayout(r1); ll.addLayout(r2); ll.addWidget(fix)
+        r3 = QHBoxLayout(); r3.addWidget(self.dvr_btn); r3.addWidget(fix)
+        ll.addLayout(r1); ll.addLayout(r2); ll.addLayout(r3)
         ll.addWidget(self.build_all_btn); ll.addWidget(self.build_on_add); ll.addWidget(self.queue_label)
         ll.addWidget(clear)
 
@@ -3746,7 +3797,12 @@ class MainWindow(QMainWindow):
         self.title_label = QLabel("Add a video to the library and double-click it to start.")
         center = QWidget()
         cl = QVBoxLayout(center)
-        cl.addWidget(self.title_label)
+        self.note_label = ElidedLabel()                        # the video's note, grey, next to its name
+        self.note_label.setStyleSheet("color:gray")
+        titlerow = QHBoxLayout()
+        titlerow.addWidget(self.title_label)
+        titlerow.addWidget(self.note_label, 1)
+        cl.addLayout(titlerow)
         cl.addWidget(self.video_widget, 1)
         cl.addWidget(self.slider)
         timerow = QHBoxLayout()
@@ -3935,6 +3991,7 @@ class MainWindow(QMainWindow):
 
         self.apply_keys()
         self.refresh_library()
+        self.refresh_dvr_button()
         self.fit_to_screen()
 
     def fit_to_screen(self):
@@ -4375,7 +4432,7 @@ class MainWindow(QMainWindow):
                 "pb_lap": bool(s["best"]) and bool(meta[vid][0]) and s["best"][0] == pb[(meta[vid][0], "best")][0],
                 "pb_run": bool(s["bestn"]) and bool(meta[vid][0]) and s["bestn"][0] == pb[(meta[vid][0], "bestn")][0],
                 "name": vname(path), "date": d.isoformat() if d else "", "ready": ready,
-                "dup": vid in dup_of, "exists": exists, "locked": vid in locked})
+                "dup": vid in dup_of, "exists": exists, "locked": vid in locked, "note": bool(notes.get(vid))})
             item.setData(Qt.ItemDataRole.UserRole, (vid, path, fps))
             item.setToolTip(path + (f"\n📝 {notes[vid]}" if notes.get(vid) else "")
                             + ("" if exists else "\n(file not found - double-click to locate)")
@@ -4428,6 +4485,7 @@ class MainWindow(QMainWindow):
         """{str(path): track} from the folder each video sits in below `root` (videos directly in `root` get none).
         A folder named like an existing track (any capitals) uses that track's spelling."""
         by_lower = {t.lower(): t for t in self.lib.tracks()}
+        learned = self.lib.folder_tracks()                   # what you chose for a folder of this name before
         out = {}
         for p in paths:
             p = Path(p)
@@ -4438,8 +4496,16 @@ class MainWindow(QMainWindow):
             if len(rel.parts) > 1:
                 name = " ".join(p.parent.name.split())
                 if name:
-                    out[str(p)] = by_lower.get(name.lower(), name)
+                    out[str(p)] = learned.get(name.lower()) or by_lower.get(name.lower(), name)
         return out
+
+    def folder_name_of(self, path, root):
+        """The folder name suggest_tracks() would use for this video ('' if it sits directly in `root`)."""
+        try:
+            rel = Path(path).relative_to(root)
+        except ValueError:
+            return ""
+        return " ".join(Path(path).parent.name.split()) if len(rel.parts) > 1 else ""
 
     def add_with_preview(self, paths, root=None, what="", title="Add videos from folder", watch=False,
                          filter_exports=True, offer_watch=False):
@@ -4475,12 +4541,15 @@ class MainWindow(QMainWindow):
         intro = (f"{len(entries)} video file(s) found {what}" + (f", in {n_sub} subfolder(s)" if n_sub else "") +
                  ". Untick any you don't want to add, and choose the track for each file (or for all the ticked "
                  "files at once with the Track box below)." +
-                 (" The track is suggested from each video's folder name; change any you like." if suggest else "") +
+                 (" The track is suggested from each video's folder name (or the track you gave that folder last time); "
+                  "change any you like." if suggest else "") +
                  " The note, if you type one, is saved on every video you add."
                  + (f" ({left_out} video(s) exported by this app were left out.)" if left_out else ""))
         shown_track = self.track_filter.currentData()
         default_track = shown_track if isinstance(shown_track, str) and shown_track not in (NEW_TRACK, RENAME_TRACK, DELETE_TRACK) else ""
-        dlg = AddVideosDialog(entries, self.lib.tracks(), default_track, self, title, intro, suggest)
+        if watch:
+            intro += " Videos you leave unticked are remembered and not offered again."
+        dlg = AddVideosDialog(entries, self.lib.tracks(), default_track, self, title, intro, suggest, skip_ok=watch)
         if dlg.exec():
             if watch:                                        # whatever was offered, added or unticked, is not offered again
                 self.lib.mark_watch_seen([seen_key(e[0]) for e in entries if not e[3]])
@@ -4490,6 +4559,16 @@ class MainWindow(QMainWindow):
                 self.pending_filter = next(iter(used)) if len(used) == 1 else None
             self.add_paths([p for p, _ in chosen], tracks={str(Path(p).resolve()): t for p, t in chosen},
                            note=dlg.note())
+            if root is not None:                             # remember which track each folder's videos were given
+                votes = {}
+                for path, track in chosen:
+                    name = self.folder_name_of(path, root).lower()
+                    if name and track:
+                        votes.setdefault(name, {}).setdefault(track, 0)
+                        votes[name][track] += 1
+                learned = {n: max(v.items(), key=lambda kv: kv[1])[0] for n, v in votes.items()}
+                if learned:
+                    self.lib.remember_folder_tracks(learned)
             if offer_watch and root is not None:
                 self.offer_watch_folder(root, [e[0] for e in entries if not e[3]] + list(left_out_paths))
 
@@ -4510,6 +4589,7 @@ class MainWindow(QMainWindow):
         box.exec()
         if box.clickedButton() is watch:
             self.settings.setValue("watch_folder", str(folder))
+            self.refresh_dvr_button()
             self.lib.mark_watch_seen([seen_key(p) for p in offered])
             self.statusBar().showMessage(f"Watching {folder}. Change it under Library → DVR folder.", 8000)
         elif box.clickedButton() is never:
@@ -4858,8 +4938,8 @@ class MainWindow(QMainWindow):
         if self.vid is None or not self.cur_path:
             return
         note = self.lib.notes_map().get(self.vid, "")
-        self.title_label.setText(f"<b>{html.escape(vname(self.cur_path))}</b>"
-                                 + (f" &nbsp;<span style='color:gray'>{html.escape(note)}</span>" if note else ""))
+        self.title_label.setText(f"<b>{html.escape(vname(self.cur_path))}</b>")
+        self.note_label.set_full_text(f"📝 {note}" if note else "")
 
     def open_video(self, vid, path, fps):
         if not os.path.exists(path):
@@ -4872,8 +4952,8 @@ class MainWindow(QMainWindow):
         if vid != self.vid:
             self.clear_undo()
         self.vid, self.fps = vid, fps or 30.0
+        self.cur_path = path                                 # (before update_title, which reads it)
         self.update_title()
-        self.cur_path = path
         self.set_shuttle(0)
         self.cursor_ms = 0.0
         self.load_source()
@@ -5678,7 +5758,21 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Choose your DVR folder (subfolders are included)", start)
         if folder:
             self.settings.setValue("watch_folder", folder)
+            self.refresh_dvr_button()
             self.check_dvr_folder(manual=True)
+
+    def on_dvr_button(self):
+        if str(self.settings.value("watch_folder", "") or ""):
+            self.check_dvr_folder(manual=True)
+        else:
+            self.choose_dvr_folder()
+
+    def refresh_dvr_button(self):
+        folder = str(self.settings.value("watch_folder", "") or "")
+        self.dvr_btn.setText("Check DVR folder" if folder else "Set DVR folder…")
+        self.dvr_btn.setToolTip(f"Look in {folder} (and its subfolders) for videos that aren't in the library yet"
+                                if folder else "Choose the folder your goggles' DVR files go to, so new videos can be "
+                                               "offered for you to add")
 
     def refresh_dvr_menu(self):
         folder = str(self.settings.value("watch_folder", "") or "")
@@ -5689,6 +5783,7 @@ class MainWindow(QMainWindow):
 
     def stop_watching(self):
         self.settings.setValue("watch_folder", "")
+        self.refresh_dvr_button()
         self.statusBar().showMessage("No longer watching a DVR folder", 4000)
 
     def offer_skipped_again(self):

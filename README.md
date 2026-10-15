@@ -233,8 +233,9 @@ LAPS      FASTEST     FASTEST 3
    for ticked files*; *＋ New track…* creates one that doesn't exist yet. Then click *Add N videos*. Files already in
    the library are greyed out and not added again. Dropping loose files adds them straight away, to the track being
    viewed. When you add a folder, each video's track is **suggested from the name of the folder it sits in**
-   (`RaceGOW/Track 1/flight.ts` starts on *Track 1*; a folder named like an existing track, in any capitals, uses that
-   track; videos directly in the folder you picked get no suggestion). Change any of them in the list. Videos that
+   (`RaceGOW/Track 1/flight.ts` starts on *Track 1*, or on the track you gave that folder's videos last time; a folder
+   named like an existing track, in any capitals, uses that track; videos directly in the folder you picked get no
+   suggestion). Change any of them in the list. Videos that
    **this app exported** are left out of folder scans (see *DVR folder*).
 2. Select videos and click **Track / date / notes…** to set a track name, session date and notes (see *Tracks and session dates*).
 3. Double-click a video to open it.
@@ -367,6 +368,8 @@ dialogs follow it.
 
 Choose the folder your goggles' DVR files end up in once, and the app offers the new ones for you.
 
+- The **Check DVR folder** button in the library panel (it reads **Set DVR folder…** until you have chosen one)
+  looks for new videos with one click. The same actions are in the menu below.
 - **Library → DVR folder → Choose DVR folder…** picks it (subfolders are included, so a `RaceGOW` folder with one
   folder per track works). The app checks it each time it starts, and **Check for new videos** does it on demand. If
   the folder isn't there (card not plugged in), the start-up check says nothing.
@@ -374,11 +377,14 @@ Choose the folder your goggles' DVR files end up in once, and the app offers the
   never when you cancel): *Watch this folder*, *Not now* (it asks again next time) or *Don't ask again*. Choosing it
   also counts everything in that list as offered, so none of it comes back. Dropping a folder never asks.
 - New videos open in the same add list as *Add folder…*, with each track suggested from the folder name, a note box
-  and *Add N videos*. Nothing is added until you click. Only videos that aren't in the library yet are listed.
+  and *Add N videos*. **The app learns your choice:** if you put the videos from a folder called `Track 1` on the track
+  `RaceGOW Track 1`, the next videos from a folder of that name start on `RaceGOW Track 1` (matched by folder name,
+  ignoring capitals; change one in the list and it learns the new choice; renaming or deleting a track updates it). Nothing is added until you click. Only videos that aren't in the library yet are listed.
 - Whatever that list showed is remembered, whether you added it or unticked it, so it isn't offered again. Videos are
   recognised by file name, size and date (not by folder), so renaming or moving the DVR folder, or a track folder,
   doesn't bring skipped videos back. Close the
-  list with *Cancel* and it is simply offered again next time. **Offer skipped videos again** forgets the list, and
+  list with *Cancel* and it is simply offered again next time. To get rid of a video for good, untick it and click *Add N videos*; if it is the only one, unticking it turns the button into
+  **Don't add it (never offer again)**. **Offer skipped videos again** forgets the list, and
   **Stop watching** clears the folder.
 - **Exported videos are skipped.** Videos made by the export feature are left out of the DVR check, *Add folder…* and
   dropped folders. Exports are recognised by the tag the app now writes into each exported file (so a renamed export
@@ -394,7 +400,8 @@ Choose the folder your goggles' DVR files end up in once, and the app offers the
   file's modified date), *Set date* (manual), or *Keep as is*. Set it manually for copied or
   re-saved files whose file date is wrong.
 - **Notes** can be typed when you add videos (the **Note for all added videos** box in the add list is saved on every
-  video you add) or later. They are free text about the flight (battery, props, tune). They show in grey above the open video, in a
+  video you add) or later. They are free text about the flight (battery, props, tune). They show in grey beside the file name above
+  the open video (cut short with … if long, with the full text in the tooltip), as a 📝 on the video's library card, in a
   tooltip on the library entry, in the **Notes** column of Library stats and in the CSV export (last column, `notes`),
   and the **Search name, track or notes…** box above the library list filters on them (it also matches file names and
   track names). They travel with library export, import and merge (a merge only fills in empty notes).
