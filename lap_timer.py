@@ -837,10 +837,14 @@ def _filter_text(text):
 
 def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS,
                       no_audio=False, audio_file=None, pictures=None, max_fps=None, decimals=3, preview_at=None, preview_w=640,
-                      highlight_fastest=False):
+                      highlight_fastest=False, intro=None, outro=None, audio_all=False):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
-    Returns (argv, clip_ms): the argument list and the length of the output clip.
+    intro / outro: optional {"path", "info"} (info from probe_stream) of a video joined before / after the clip,
+    scaled and padded to the clip's size and frame rate. They keep their own sound (silence if they have none)
+    unless audio_all is set with a replacement audio_file, which then plays under the whole video instead.
+
+    Returns (argv, clip_ms): the argument list and the length of the output video (intro and outro included).
     With preview_at (seconds into the clip) it instead renders that one frame, scaled to preview_w pixels wide,
     as a PNG to `out`: the same filters as the export, so the picture matches it exactly."""
     m = win["marks_ms"]
@@ -944,7 +948,7 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
                  if info.get("audio") else [])
         audio_map = ["-map", "0:a:0?"]
     audio_enc = [] if (no_audio and not audio_file) else ["-c:a", "aac", "-b:a", "192k"]
-    pic_in, video_args = [], ["-map", "0:v:0", "-vf", vf]
+    pic_in, extra_in, extra_s, video_args = [], [], 0.0, ["-map", "0:v:0", "-vf", vf]
     pictures = [p for p in (pictures or []) if p.get("path")]
     if preview_at is not None:                             # one frame: work out each picture's fade by hand, so it
         at_s, shown = at_ms / 1000, []                     # is read once instead of looped (slow on a network drive)
@@ -961,7 +965,8 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             if alpha > 0:
                 shown.append((pic, alpha))
         pictures = [dict(pic, alpha=a) for pic, a in shown]
-    if pictures:
+    extras = [] if preview_at is not None else [(r, e) for r, e in (("intro", intro), ("outro", outro)) if e]
+    if pictures or extras:
         # pictures (e.g. the pilot's sticker) laid over the centre of the video. "end": fades in and stays for
         # the last `secs` seconds; "start": shown from the first frame, fades out after `secs` seconds. Never
         # scaled up past their own size; colours converted to the BT.709 the video uses.
@@ -990,22 +995,80 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
             parts_g.append(f"[{last}][pic{k}]overlay=x=(W-w)/2:y=(H-h)/2:{ending}:enable='{en}'[{out_label}]")
             last = out_label
             pic_in += ([] if preview_at is not None else ["-loop", "1", "-framerate", "30"]) + ["-i", str(pic["path"])]
-        parts_g.append(",".join([f"[{last}]format=yuv420p"] + lower) + "[v]")
+        main_v = "mv" if extras else "v"
+        parts_g.append(",".join([f"[{last}]format=yuv420p"] + lower + (["setsar=1"] if extras else [])) + f"[{main_v}]")
         video_args = ["-filter_complex", ";".join(parts_g), "-map", "[v]"]
+        if extras:
+            # intro / outro: each is fitted inside the clip's frame (black bars if the shape differs), brought to the
+            # clip's frame rate and colours, then all the pieces are joined with the concat filter.
+            fps_out = max_fps if lower else info.get("fps", 30.0)
+            norm_a = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
+            joined_audio = bool(audio_file) and audio_all and not no_audio
+            has_audio = not no_audio or bool(audio_file)
+            vparts, aparts, names = [], [], []
+            if has_audio and not joined_audio:             # the clip's own sound (or the replacement, clip-length)
+                if audio_file:
+                    aparts.append(f"[1:a:0]apad=whole_dur={clip_s:.6f},atrim=duration={clip_s:.6f},asetpts=PTS-STARTPTS,"
+                                  f"afade=t=out:st={clip_s - min(1.0, clip_s):.6f}:d={min(1.0, clip_s):.3f},{norm_a}[am]")
+                elif info.get("audio"):
+                    aparts.append(f"[0:a:0]atrim=start={skip:.6f}:duration={clip_s:.6f},asetpts=PTS-STARTPTS,"
+                                  f"apad=whole_dur={clip_s:.6f},{norm_a}[am]")
+                else:
+                    aparts.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={clip_s:.6f},asetpts=PTS-STARTPTS[am]")
+            idx = first + len(pictures)
+            for role, e in extras:
+                ei, d = e["info"], e["info"]["duration_ms"] / 1000.0
+                eh, ew = ei["height"], ei["width"]
+                em = {"bt470bg": "bt470", "smpte170m": "smpte170m", "bt709": "bt709", "bt2020nc": "bt2020",
+                      "bt2020c": "bt2020"}.get(ei.get("matrix") or "", "bt709" if eh >= 720 else "smpte170m")
+                vparts.append(
+                    f"[{idx}:v:0]trim=duration={d:.6f},setpts=PTS-STARTPTS,"
+                    f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                    f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps_out:g},"
+                    f"scale=in_range={'pc' if ei.get('full_range') else 'tv'}:out_range=tv:"
+                    f"in_color_matrix={em}:out_color_matrix=bt709,format=yuv420p,{tags}[{role}v]")
+                if has_audio and not joined_audio:
+                    if ei.get("audio"):
+                        aparts.append(f"[{idx}:a:0]apad=whole_dur={d:.6f},atrim=duration={d:.6f},asetpts=PTS-STARTPTS,"
+                                      f"{norm_a}[{role}a]")
+                    else:
+                        aparts.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={d:.6f},asetpts=PTS-STARTPTS[{role}a]")
+                names.append(role)
+                extra_s += d
+                idx += 1
+                extra_in += ["-i", str(e["path"])]
+            vin = (["[introv]"] if "intro" in names else []) + ["[mv]"] + (["[outrov]"] if "outro" in names else [])
+            ain = (["[introa]"] if "intro" in names else []) + ["[am]"] + (["[outroa]"] if "outro" in names else [])
+            n_seg = len(vin)
+            total_s = clip_s + extra_s
+            if joined_audio:                               # one replacement track under everything
+                aparts.append(f"[1:a:0]apad=whole_dur={total_s:.6f},atrim=duration={total_s:.6f},asetpts=PTS-STARTPTS,"
+                              f"afade=t=out:st={total_s - min(1.0, total_s):.6f}:d={min(1.0, total_s):.3f},{norm_a}[a]")
+                parts_g += vparts + aparts
+                parts_g.append("".join(vin) + f"concat=n={n_seg}:v=1:a=0[v]")
+            elif has_audio:
+                parts_g += vparts + aparts
+                parts_g.append("".join(v + a for v, a in zip(vin, ain)) + f"concat=n={n_seg}:v=1:a=1[v][a]")
+            else:
+                parts_g += vparts
+                parts_g.append("".join(vin) + f"concat=n={n_seg}:v=1:a=0[v]")
+            video_args = ["-filter_complex", ";".join(parts_g), "-map", "[v]"]
+            if has_audio:
+                audio_map, audio = ["-map", "[a]"], []
     if preview_at is not None:
         return ["-y", "-loglevel", "error", "-nostats", "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src), *pic_in,
                 *video_args, "-an", "-frames:v", "1", "-f", "image2", "-c:v", "png", str(out)], clip_ms
     argv = ["-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
             "-ss", f"{seek_ms / 1000:.3f}", "-i", str(src),
             *(["-i", str(audio_file)] if audio_file else []),
-            *pic_in,
-            "-t", f"{clip_ms / 1000 + 0.5:.3f}",
+            *pic_in, *extra_in,
+            "-t", f"{clip_ms / 1000 + extra_s + 0.5:.3f}",
             *video_args, *audio_map, *audio,
             *(SYNC_FLAGS_OLD if legacy_sync else SYNC_FLAGS),
             "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p",
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
             *audio_enc, "-movflags", "+faststart", str(out)]
-    return argv, clip_ms
+    return argv, clip_ms + extra_s * 1000
 
 
 PREVIEW_W = 480                                           # width of the overlay preview in the export window
@@ -1095,6 +1158,53 @@ class PictureRow:
             self.edit.setText(p)
 
 
+class ClipRow:
+    """An intro / outro video chooser for the export dialog: label + path box + Browse + Clear.
+    The chosen file is remembered between exports (QSettings key <key>)."""
+    def __init__(self, dialog, label, key, tip):
+        self.dialog, self.key = dialog, key
+        self.edit = QLineEdit()
+        self.edit.setPlaceholderText("none (any video file)")
+        self.edit.setToolTip(tip)
+        remembered = str(dialog.settings.value(key, "") or "")
+        self.edit.setText(remembered if remembered and os.path.exists(remembered) else "")
+        self.browse = QPushButton("Browse…")
+        self.browse.clicked.connect(self.choose)
+        self.clear = QPushButton("Clear")
+        self.clear.clicked.connect(self.edit.clear)
+        self.row = QHBoxLayout()
+        lab = QLabel(label)
+        lab.setMinimumWidth(95)
+        self.row.addWidget(lab); self.row.addWidget(self.edit, 1)
+        self.row.addWidget(self.browse); self.row.addWidget(self.clear)
+        self.edit.textChanged.connect(self.sync)
+        self.sync()
+
+    def path(self):
+        return self.edit.text().strip() or None
+
+    def save(self):
+        self.dialog.settings.setValue(self.key, self.path() or "")
+
+    def sync(self, *_):
+        self.clear.setEnabled(bool(self.path()))
+
+    def set_busy(self, busy):
+        for w in (self.edit, self.browse):
+            w.setEnabled(not busy)
+        if busy:
+            self.clear.setEnabled(False)
+        else:
+            self.sync()
+
+    def choose(self):
+        p, _ = QFileDialog.getOpenFileName(
+            self.dialog, "Choose a video", self.edit.text() or str(Path.home()),
+            "Videos (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.ts);;All files (*)")
+        if p:
+            self.edit.setText(p)
+
+
 class ExportDialog(QDialog):
     """Shows what will be exported, asks where to save it, then runs ffmpeg with a progress bar."""
     def __init__(self, win, parent=None):
@@ -1175,6 +1285,21 @@ class ExportDialog(QDialog):
         self.end_pic = PictureRow(self, "End picture:", "export_end_pic",
                                   "A picture shown in the centre of the video at the end, fading in.",
                                   fade_word="fades in over the first half second")
+        self.intro = ClipRow(self, "Intro video:", "export_intro",
+                             "A video of your own played before the lap clip. It is fitted into the same frame size "
+                             "and frame rate (black bars if the shape differs) and keeps its own sound.")
+        self.outro = ClipRow(self, "Outro video:", "export_outro",
+                             "A video of your own played after the lap clip. It is fitted into the same frame size "
+                             "and frame rate (black bars if the shape differs) and keeps its own sound.")
+        self.audio_all = QCheckBox("Replacement audio also plays over the intro video and outro video (added below)")
+        self.audio_all.setToolTip("Off: the audio file covers only the lap clip, and the intro and outro keep their own "
+                                  "sound. On: the audio file plays under the whole video, intro and outro included "
+                                  "(their own sound is dropped).")
+        self.audio_all.setChecked(self.settings.value("export_audio_all", False, type=bool))
+        self.audio_edit.textChanged.connect(self.sync_audio_all)
+        self.no_audio.toggled.connect(self.sync_audio_all)
+        self.intro.edit.textChanged.connect(self.sync_audio_all)
+        self.outro.edit.textChanged.connect(self.sync_audio_all)
         self.fps_combo = QComboBox()
         self.fps_combo.setToolTip("Lower the frame rate of the exported video. YouTube plays at most 60 fps, so a 90 fps "
                                   "export is better converted to 60. A video already at or below the choice is not changed.")
@@ -1255,10 +1380,14 @@ class ExportDialog(QDialog):
         arow.addWidget(QLabel("Replace audio with:")); arow.addWidget(self.audio_edit, 1)
         arow.addWidget(self.audio_browse); arow.addWidget(self.audio_clear)
         lay.addLayout(arow)
+        lay.addWidget(self.audio_all)
         self.sync_audio_options()
+        self.sync_audio_all()
         for pic in (self.start_pic, self.end_pic):
             lay.addLayout(pic.row1)
             lay.addLayout(pic.row2)
+        lay.addLayout(self.intro.row)
+        lay.addLayout(self.outro.row)
         lay.addStretch(1)
         outer.addWidget(self.bar)
         outer.addWidget(self.status)
@@ -1378,6 +1507,11 @@ class ExportDialog(QDialog):
         self.audio_browse.setEnabled(not self.no_audio.isChecked())
         self.audio_clear.setEnabled(has_file)
 
+    def sync_audio_all(self, *_):
+        """The 'covers the intro and outro too' choice only matters with a replacement file and an intro or outro."""
+        self.audio_all.setEnabled(bool(self.audio_edit.text().strip()) and bool(self.intro.path() or self.outro.path())
+                                  and not self.no_audio.isChecked())
+
     def browse_audio(self):
         p, _ = QFileDialog.getOpenFileName(
             self, "Choose audio", self.audio_edit.text() or str(Path.home()),
@@ -1425,6 +1559,19 @@ class ExportDialog(QDialog):
             if pic.path() and not os.path.exists(pic.path()):
                 QMessageBox.warning(self, "Picture not found", f"The picture can't be found:\n{pic.path()}")
                 return
+        self.intro_spec = self.outro_spec = None
+        for row, role in ((self.intro, "intro"), (self.outro, "outro")):
+            if not row.path():
+                continue
+            if not os.path.exists(row.path()):
+                QMessageBox.warning(self, "Video not found", f"The {role} video can't be found:\n{row.path()}")
+                return
+            info = probe_stream(row.path())
+            if not info.get("_v") or not info.get("duration_ms"):
+                QMessageBox.warning(self, "Can't read video", f"The {role} video can't be read (it needs a picture track "
+                                    f"and a known length):\n{row.path()}")
+                return
+            setattr(self, role + "_spec", {"path": row.path(), "info": info})
         self.final = Path(self.path_edit.text().strip())
         if not self.final.name:
             return
@@ -1437,6 +1584,9 @@ class ExportDialog(QDialog):
             self.settings.setValue("export_audio", self.audio_path or "")
         self.start_pic.save()
         self.end_pic.save()
+        self.intro.save()
+        self.outro.save()
+        self.settings.setValue("export_audio_all", self.audio_all.isChecked())
         self.settings.setValue("export_preview_on", self.preview_on.isChecked())
         self.settings.setValue("export_highlight", self.highlight.isChecked())
         self.settings.setValue("export_decimals", self.dec_combo.currentData())
@@ -1456,7 +1606,9 @@ class ExportDialog(QDialog):
                                                max_fps=self.fps_combo.currentData(),
                                                decimals=self.dec_combo.currentData(),
                                                highlight_fastest=self.highlight.isChecked(),
-                                               pictures=[self.start_pic.spec("start"), self.end_pic.spec("end")])
+                                               pictures=[self.start_pic.spec("start"), self.end_pic.spec("end")],
+                                               intro=self.intro_spec, outro=self.outro_spec,
+                                               audio_all=self.audio_all.isChecked())
         self.buf = ""
         self.proc = QProcess(self)
         hide_console(self.proc)
@@ -1479,6 +1631,9 @@ class ExportDialog(QDialog):
             w.setEnabled(False)
         self.start_pic.set_busy(True)
         self.end_pic.set_busy(True)
+        self.intro.set_busy(True)
+        self.outro.set_busy(True)
+        self.audio_all.setEnabled(False)
         self.bar.setValue(0); self.bar.show()
         self.folder_link.hide()
         self.status.setText("Exporting… high quality takes a while (a few minutes for a typical 25-30 s clip, longer at 90 fps).")
@@ -1531,6 +1686,9 @@ class ExportDialog(QDialog):
         self.sync_audio_options()
         self.start_pic.set_busy(False)
         self.end_pic.set_busy(False)
+        self.intro.set_busy(False)
+        self.outro.set_busy(False)
+        self.sync_audio_all()
         self.bar.hide()
 
     def kill_job(self):

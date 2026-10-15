@@ -380,6 +380,8 @@ export asks you to pick one track first.
 Makes a shareable video of your fastest N consecutive laps (N = the track's *Fastest run* setting, 3 by default)
 with a lap timer drawn on it.
 
+New to it? See the step-by-step guide: **[How to export your fastest laps](docs/EXPORT.md)**.
+
 - **From the open video:** **🎬 Export fastest N video…** in the right panel exports that video's fastest
   N consecutive laps. **From a track:** **Library stats → 🎬 Export fastest N video (this track)…** exports
   the single fastest run of N laps across all videos on the selected track (or *All tracks*), whichever video they
@@ -397,6 +399,11 @@ with a lap timer drawn on it.
   starts with the clip, is padded with silence if it is shorter and fades out over the last second if it is longer.
   The two options are alternatives: choosing a file switches *Remove audio* off. The audio file you used last is
   remembered (if it is still there); *Clear* forgets it.
+- **Intro and outro videos:** choose an **Intro video:** and/or **Outro video:** of your own (any video file). They
+  are joined before and after the lap clip, fitted into the same frame size (black bars if the shape differs) and
+  frame rate; the lap timer and pictures appear only on the lap clip. They keep their own sound (silence if they
+  have none). With a *Replace audio with:* file, tick **Replacement audio also plays over the intro video and outro video (added below)** to
+  have it play under the whole video; unticked, it covers only the lap clip. The preview shows the lap clip only.
 - **Start and end pictures (stickers):** choose a **Start picture:** and/or an **End picture:** (they can be
   different files; a PNG with transparency works best, JPG, WebP, BMP and GIF also work), for example your
   pilot-handle sticker. Each is placed in the centre of the video. The start picture is shown from the first
