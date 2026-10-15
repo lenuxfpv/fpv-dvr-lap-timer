@@ -32,7 +32,8 @@ placed on a frame you can see, the times are accurate to the frame and easy to d
   and fastest run at a glance. Add a note to a video (battery, props, tune) and search by name, track or note. Move
   or rename files and the marks stay attached.
 - **Add new flights without the chore.** Point the app at your DVR folder (subfolders are fine) and it offers the
-  new videos each time it starts, with the track suggested from the folder name.
+  new videos each time it starts, with the track suggested from the folder name. Folders you never want checked can
+  be left out for good.
 - **Find your best.** Fastest lap and your fastest run of consecutive laps (3 by default, 2-10 per track), per
   video and across a whole track, with a lap chart and a progress chart to see improvement over time, plus how
   consistent your laps are. In the open video the fastest lap is highlighted in gold and the fastest run in blue,
@@ -158,7 +159,7 @@ the cached smooth copies to free disk space.
 Everything is stored in one SQLite database, `library.db`: Linux `~/.local/share/fpv-dvr-lap-timer/`, Windows
 `%APPDATA%\fpv-dvr-lap-timer\`, macOS `~/Library/Application Support/fpv-dvr-lap-timer/`. Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds
 each video's path, gate marks, bad-lap flags, track name, session date and notes, plus the track you gave each
-folder's videos and the DVR check's list of files it has already offered. Back up that one file to keep your
+folder's videos, the DVR check's list of files it has already offered and its list of excluded folders. Back up that one file to keep your
 history.
 
 - **Smooth-scrub copies** live in a cache folder, never next to your videos: Linux `~/.cache/fpv-dvr-lap-timer/smooth`,
