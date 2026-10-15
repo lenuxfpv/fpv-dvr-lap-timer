@@ -34,7 +34,8 @@ placed on a frame you can see, the times are accurate to the frame and easy to d
   video the fastest lap is highlighted in gold and the fastest run in blue, in the gate list and on the seek bar.
 - **Export a shareable video.** Cut your fastest run from the original footage with a lap timer drawn on it,
   optional start and end pictures (your pilot handle, say), your own intro and outro videos, your own audio or
-  none, and padding either side. [Export guide](docs/EXPORT.md).
+  none, and padding either side. You can also export any laps you choose, and move or hide parts of the timer.
+  [Export guide](docs/EXPORT.md).
 - **Export your data.** Lap times to CSV, and the whole library to a single file you can back up, move to another
   computer or merge into another library.
 
@@ -147,7 +148,7 @@ the cached smooth copies to free disk space.
 
 Everything is stored in one SQLite database, `library.db`: Linux `~/.local/share/fpv-dvr-lap-timer/`, Windows
 `%APPDATA%\fpv-dvr-lap-timer\`. Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds
-each video's path, gate marks, bad-lap flags, track name and session date. Back up that one file to keep your
+each video's path, gate marks, bad-lap flags, track name, session date and notes. Back up that one file to keep your
 history.
 
 - **Smooth-scrub copies** live in a cache folder, never next to your videos: Linux `~/.cache/fpv-dvr-lap-timer/smooth`,
@@ -219,7 +220,8 @@ LAPS      FASTEST     FASTEST 3
 
 - **Assign to track** lists your existing tracks (ticked if the selected videos are already on it) plus **New track…**.
 - **Remove from track** clears the track.
-- **Track & session date…** opens the full dialog (see *Tracks and session dates*).
+- **Add note…** / **Edit note…** sets a note on the video(s) with one small box (empty clears it).
+- **Track, date & notes…** (also **Track / date / notes…** under the list) opens the full dialog (see *Tracks and session dates*).
 - **Delete smooth copy and lock** and **🔒 Don't auto-build smooth copy** manage the video's smooth copy (see
   *Deleting or locking a smooth copy*).
 
@@ -231,7 +233,7 @@ LAPS      FASTEST     FASTEST 3
    for ticked files*; *＋ New track…* creates one that doesn't exist yet. Then click *Add N videos*. Files already in
    the library are greyed out and not added again. Dropping loose files adds them straight away, to the track being
    viewed.
-2. Select videos and click **Track / date…** to set a track name and session date (see *Tracks and session dates*).
+2. Select videos and click **Track / date / notes…** to set a track name, session date and notes (see *Tracks and session dates*).
 3. Double-click a video to open it.
 4. Play or scrub to the moment you pass through the gate and press **Z** (or the green button; the key can be
    changed, see *Changing the keys*). The first mark starts lap 1; every later mark ends a lap and starts the next.
@@ -358,6 +360,11 @@ dialogs follow it.
 - **Session date** controls ordering in the library list and charts. Choose *Use file date* (the
   file's modified date), *Set date* (manual), or *Keep as is*. Set it manually for copied or
   re-saved files whose file date is wrong.
+- **Notes** can be typed when you add videos (the **Note for all added videos** box in the add list is saved on every
+  video you add) or later. They are free text about the flight (battery, props, tune). They show in grey above the open video, in a
+  tooltip on the library entry, in the **Notes** column of Library stats and in the CSV export (last column, `notes`),
+  and the **Search name, track or notes…** box above the library list filters on them (it also matches file names and
+  track names). They travel with library export, import and merge (a merge only fills in empty notes).
 - Select several videos (Shift/Ctrl-click) to tag them all at once, or use the right-click menu. Fields that differ
   between the selected videos are left alone unless you change them.
 - The dropdown above the library list filters it by track. Videos you add while a track is selected join that
@@ -369,6 +376,26 @@ dialogs follow it.
   track…** and **🗑 Delete this track…**. Renaming changes the name on all its videos (typing the name of
   another existing track offers to merge the two). Deleting asks first; the videos stay in the library with
   their marks and simply have no track. Works on empty tracks too, so a typo is easy to fix.
+
+## Comparing laps
+
+**Library → Compare laps…** (or **Compare laps…** in the right panel) plays two laps side by side to show where one gains
+on the other.
+
+- Pick a **Track**, then a video and a lap for **A** and for **B**. The two can come from different videos on the same
+  track, so you can set your best lap against a lap from another day. A starts on the fastest lap of the track, B on
+  the lap at the playhead of the open video (or the next best). Laps flagged bad are listed with *(bad)*.
+- Both laps start on their own start-gate frame and play together; **Play / Pause**, **Frame** steps, the **Speed**
+  box (0.1x to 2x), the seek bar and your own play and step keys all move the two videos as one. As in the main
+  window, **hold Shift+←** or **Shift+→** (your hold-to-play keys) to play both backward or forward at 2x while the
+  key is down; they stop when you let go. The shorter lap stops
+  on its finish gate while the other runs on. The line under the videos gives both lap times and the difference;
+  whichever lap reaches a gate or corner first at the same elapsed time is ahead. Both videos play without sound.
+- **It needs smooth copies.** The original `.ts` files can't seek to an exact frame (they land up to a second late) and
+  are too heavy to decode two at once, so the two laps would not line up. If a chosen video has no smooth copy the
+  window asks whether to build it now (*Build now* / *Not now*), shows the building progress in that video's pane,
+  and starts the comparison by itself when it is ready. *Not now* leaves a **Build smooth copy** button in the pane.
+  Without ffmpeg installed it says so instead.
 
 ## Reports
 
@@ -384,7 +411,7 @@ dialogs follow it.
 - **Progress chart** (in Library stats): one point per video in session-date order, showing fastest lap
   and best-N average per lap for the selected track, to see improvement over time.
 - **Export CSV**: from the right panel (current video) or Library stats (selected track). Columns:
-  `track, session_date, video, lap, start_s, end_s, lap_time_s, lap_time, bad_lap`. Bad laps are
+  `track, session_date, video, lap, start_s, end_s, lap_time_s, lap_time, bad_lap, notes`. Bad laps are
   included and marked `yes`, so you can filter them in a spreadsheet.
 
 **Choosing N.** The *Fastest run for 'track':* box in the right panel sets how many consecutive laps count as the
@@ -412,6 +439,10 @@ New to it? See the step-by-step guide: **[How to export your fastest laps](docs/
   are in. The *Save as* box starts in the same folder as the source video (or your Videos folder if that
   folder can't be found); change the name or folder if you like, then click *Export*. A progress bar shows how far
   it is, and *Cancel* removes the partial file. When it finishes, an *Open the folder* link opens the folder.
+- **Any laps you choose:** **Export laps…** (right panel) exports lap A to lap B of the open video instead of the
+  fastest run, with the video's own lap numbers on the overlay. See the [export guide](docs/EXPORT.md).
+- **Timer layout:** in the export window, choose the timer text size, swap the two sides, and hide the lap list,
+  track name, total or banner, to keep clear of your DVR's own on-screen display.
 - **What you get:** an MP4 (H.264) of the **original footage**, not the smooth copy, at its original resolution and
   frame rate by default (a 90 fps video stays 90 fps; see *Frame rate* below), cut on the exact frames you marked. It is re-encoded at high quality
   (x264 CRF 16, slow preset) with BT.709 colours so it plays correctly on YouTube, Discord and phones.

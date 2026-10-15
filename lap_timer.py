@@ -311,6 +311,8 @@ class Library:
             self.db.execute("ALTER TABLE videos ADD COLUMN session_date TEXT")
         if "proxy_locked" not in cols:      # 1 = never build this video's smooth copy automatically
             self.db.execute("ALTER TABLE videos ADD COLUMN proxy_locked INTEGER NOT NULL DEFAULT 0")
+        if "notes" not in cols:             # free text: battery, props, tune...
+            self.db.execute("ALTER TABLE videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
         self.db.commit()
 
     # --- track / session metadata
@@ -325,6 +327,15 @@ class Library:
                 self.db.execute("UPDATE videos SET track=? WHERE id=?", (track.strip(), vid))
             if session_date is not KEEP:
                 self.db.execute("UPDATE videos SET session_date=? WHERE id=?", (session_date, vid))
+        self.db.commit()
+
+    def notes_map(self):
+        """{video_id: notes text}"""
+        return {r[0]: r[1] or "" for r in self.db.execute("SELECT id, notes FROM videos")}
+
+    def set_notes(self, vids, text):
+        for vid in vids:
+            self.db.execute("UPDATE videos SET notes=? WHERE id=?", (text.strip(), vid))
         self.db.commit()
 
     def proxy_locked_ids(self):
@@ -562,6 +573,8 @@ class Library:
             self.db.execute("ALTER TABLE videos ADD COLUMN session_date TEXT")
         if "proxy_locked" not in cols:
             self.db.execute("ALTER TABLE videos ADD COLUMN proxy_locked INTEGER NOT NULL DEFAULT 0")
+        if "notes" not in cols:
+            self.db.execute("ALTER TABLE videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
         self.db.execute("CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY)")
         self.db.execute("CREATE TABLE IF NOT EXISTS track_settings (track TEXT PRIMARY KEY, run_length INTEGER NOT NULL)")
         self.db.commit()
@@ -578,10 +591,10 @@ class Library:
             cols = {r[1] for r in src.execute("PRAGMA table_info(videos)")}
             sel = "id, path, fps, " + ("track" if "track" in cols else "''") + ", " + \
                   ("session_date" if "session_date" in cols else "NULL") + ", " + \
-                  ("proxy_locked" if "proxy_locked" in cols else "0")
+                  ("proxy_locked" if "proxy_locked" in cols else "0") + ", " + ("notes" if "notes" in cols else "''")
             theirs = src.execute(f"SELECT {sel} FROM videos").fetchall()
-            for sid, vpath, fps, track, sdate, locked in theirs:
-                row = self.db.execute("SELECT id, track, session_date FROM videos WHERE path=?", (vpath,)).fetchone()
+            for sid, vpath, fps, track, sdate, locked, notes in theirs:
+                row = self.db.execute("SELECT id, track, session_date, notes FROM videos WHERE path=?", (vpath,)).fetchone()
                 if row:
                     vid = row[0]
                     stats["videos_matched"] += 1
@@ -589,9 +602,11 @@ class Library:
                         self.db.execute("UPDATE videos SET track=? WHERE id=?", (track, vid))
                     if not row[2] and sdate:
                         self.db.execute("UPDATE videos SET session_date=? WHERE id=?", (sdate, vid))
+                    if not row[3] and notes:
+                        self.db.execute("UPDATE videos SET notes=? WHERE id=?", (notes, vid))
                 else:
-                    vid = self.db.execute("INSERT INTO videos(path, fps, track, session_date, proxy_locked) VALUES(?,?,?,?,?)",
-                                          (vpath, fps or 30, track or "", sdate, locked or 0)).lastrowid
+                    vid = self.db.execute("INSERT INTO videos(path, fps, track, session_date, proxy_locked, notes) VALUES(?,?,?,?,?,?)",
+                                          (vpath, fps or 30, track or "", sdate, locked or 0, notes or "")).lastrowid
                     stats["videos_added"] += 1
                 have = {r[0] for r in self.db.execute("SELECT time_ms FROM marks WHERE video_id=?", (vid,))}
                 for t, bad in src.execute("SELECT time_ms, bad_lap FROM marks WHERE video_id=? ORDER BY time_ms", (sid,)):
@@ -619,8 +634,8 @@ def export_csv(lib, video_ids, path):
     with open(path, "w", newline="", encoding="utf-8-sig") as f:      # BOM so Excel reads non-ASCII names
         w = csv.writer(f)
         w.writerow(["track", "session_date", "video", "lap", "start_s", "end_s",
-                    "lap_time_s", "lap_time", "bad_lap"])
-        meta = lib.all_meta()
+                    "lap_time_s", "lap_time", "bad_lap", "notes"])
+        meta, notes = lib.all_meta(), lib.notes_map()
         for vid, vpath, _ in lib.videos():
             if vid not in video_ids:
                 continue
@@ -631,7 +646,7 @@ def export_csv(lib, video_ids, path):
             for i in range(1, len(m)):
                 lap = m[i][1] - m[i - 1][1]
                 w.writerow([track, d, vname(vpath), i, f"{m[i-1][1]/1000:.3f}", f"{m[i][1]/1000:.3f}",
-                            f"{lap/1000:.3f}", fmt(lap), "yes" if m[i][2] else "no"])
+                            f"{lap/1000:.3f}", fmt(lap), "yes" if m[i][2] else "no", notes.get(vid, "")])
 
 
 # ----------------------------------------------------------------------------
@@ -843,14 +858,25 @@ def _filter_text(text):
     return str(text).replace("\\", "").replace("'", "\u2019").replace("%", "").replace("\n", " ")
 
 
+OVERLAY_DEFAULTS = {"size": 1.0,          # text size multiplier
+                    "swap": False,        # lap block on the right and the total block on the left
+                    "list": True,         # finished-laps list
+                    "track": True,        # track name
+                    "total": True,        # "N LAPS" label and the running total
+                    "banner": True}       # gold banner along the bottom at the end
+
+
 def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPORT_TAIL_MS, lead_ms=EXPORT_LEAD_MS,
                       no_audio=False, audio_file=None, pictures=None, max_fps=None, decimals=3, preview_at=None, preview_w=640,
-                      highlight_fastest=False, intro=None, outro=None, audio_all=False):
+                      highlight_fastest=False, intro=None, outro=None, audio_all=False, overlay=None):
     """ffmpeg argv that cuts the fastest-N window from `src` and draws the lap timer overlay.
 
     intro / outro: optional {"path", "info"} (info from probe_stream) of a video joined before / after the clip,
     scaled and padded to the clip's size and frame rate. They keep their own sound (silence if they have none)
     unless audio_all is set with a replacement audio_file, which then plays under the whole video instead.
+
+    overlay: optional look of the timer, see OVERLAY_DEFAULTS. A win with "custom" set (a chosen lap or range, not the
+    fastest run) numbers its laps as in the video ("first_lap", "laps_in_video") instead of "fastest N consecutive".
 
     Returns (argv, clip_ms): the argument list and the length of the output video (intro and outro included).
     With preview_at (seconds into the clip) it instead renders that one frame, scaled to preview_w pixels wide,
@@ -866,8 +892,16 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     s = [(x - c0) / 1000.0 for x in m]                     # gate times from the clip start, seconds
     eps = 0.0005                                           # a frame within 0.5 ms of a gate belongs to the next lap
     W, H = info["width"], info["height"]
-    fs_big, fs_med, fs_small = round(H * 0.080), round(H * 0.043), round(H * 0.032)
+    ov = dict(OVERLAY_DEFAULTS, **(overlay or {}))
+    fs_big, fs_med, fs_small = (round(H * f * ov["size"]) for f in (0.080, 0.043, 0.032))
     mar = round(W * 0.025)
+    custom = bool(win.get("custom"))
+    lap0 = int(win.get("first_lap", 1))                    # number of the first exported lap in its video
+    of_total = win.get("laps_in_video")
+    if custom and n == 1:                                  # one chosen lap: its own timer says it all
+        ov["list"] = ov["total"] = False
+    x_a = mar if not ov["swap"] else f"w-text_w-{mar}"     # the lap block (left unless swapped)
+    x_b = f"w-text_w-{mar}" if not ov["swap"] else mar     # the track / total block
     ff = font.replace("\\", "/").replace(":", "\\:")
 
     def dt(text, x, y, size, color="white", enable=None, box=0.55):
@@ -896,31 +930,49 @@ def build_export_args(win, src, out, font, info, legacy_sync=False, tail_ms=EXPO
     # finished-laps list: keep it clear of the bottom banner however many laps there are
     line_h = min(fs_med * 1.6, max(fs_small, (H * 0.84 - y_list) / n))
     fs_list = max(10, min(fs_med, round(line_h / 1.5)))
+    def lap_text(k):                                       # "LAP 2 / 3", or the video's own numbering for a chosen range
+        if not custom:
+            return f"LAP {k + 1} / {n}"
+        return f"LAP {lap0 + k}" + (f" / {of_total}" if of_total else "")
+
+    def range_name():                                      # label above the running total
+        if not custom:
+            return f"{n} LAPS"
+        return f"LAPS {lap0}-{lap0 + n - 1}" if n > 1 else f"LAP {lap0}"
+
+    def banner_name():
+        if not custom:
+            return f"FASTEST {n} CONSECUTIVE LAPS"
+        return f"LAPS {lap0}-{lap0 + n - 1}" if n > 1 else f"LAP {lap0}"
+
     parts = []
     for k in range(n):                                     # lap k+1 running, from its gate to the next gate
         a = -1 if k == 0 else s[k] - eps                   # (lap 1 also covers the lead-in)
         b = s[k + 1] - eps
         en = f"gte(t,{a:.6f})*lt(t,{b:.6f})"
-        parts.append(dt(f"LAP {k + 1} / {n}", mar, y_lbl, fs_med, enable=en))
-        parts += timer(s[k], en, mar, y_big, fs_big)
+        parts.append(dt(lap_text(k), x_a, y_lbl, fs_med, enable=en))
+        parts += timer(s[k], en, x_a, y_big, fs_big)
     en_end = f"gte(t,{s[n] - eps:.6f})"                    # after the last gate: hold the last lap
-    parts.append(dt(f"LAP {n} / {n}", mar, y_lbl, fs_med, enable=en_end))
-    parts.append(dt(fmt_overlay(win["lap_ms"][n - 1], decimals), mar, y_big, fs_big, enable=en_end))
+    parts.append(dt(lap_text(n - 1), x_a, y_lbl, fs_med, enable=en_end))
+    parts.append(dt(fmt_overlay(win["lap_ms"][n - 1], decimals), x_a, y_big, fs_big, enable=en_end))
     best = win["lap_ms"].index(min(win["lap_ms"])) if highlight_fastest else -1   # the fastest of these laps (gold)
-    for k in range(n):                                     # finished laps list, one line appears per lap
-        parts.append(dt(f"LAP {k + 1}   {fmt_overlay(win['lap_ms'][k], decimals)}", mar, y_list + round(k * line_h), fs_list,
+    for k in range(n if ov["list"] else 0):                # finished laps list, one line appears per lap
+        parts.append(dt(f"LAP {lap0 + k}   {fmt_overlay(win['lap_ms'][k], decimals)}" if custom
+                        else f"LAP {k + 1}   {fmt_overlay(win['lap_ms'][k], decimals)}", x_a, y_list + round(k * line_h), fs_list,
                         color="#FFD54F" if k == best else "white", enable=f"gte(t,{s[k + 1] - eps:.6f})"))
-    # top right: track name, then the running total of the N laps
-    label = _filter_text(win.get("track") or "")
+    # the other corner: track name, then the running total of the laps
+    label = _filter_text(win.get("track") or "") if ov["track"] else ""
     if label:
-        parts.append(dt(label, "w-text_w-%d" % mar, y_lbl, fs_small))
+        parts.append(dt(label, x_b, y_lbl, fs_small))
     y_tot = y_lbl + round(fs_small * 1.9) if label else y_lbl
-    parts.append(dt(f"{n} LAPS", "w-text_w-%d" % mar, y_tot, fs_med))
-    parts += timer(s[0], f"lt(t,{s[n] - eps:.6f})", "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big)
-    parts.append(dt(fmt_overlay(win["total_ms"], decimals), "w-text_w-%d" % mar, y_tot + round(fs_med * 1.7), fs_big,
-                    color="#FFD54F", enable=en_end))
-    parts.append(dt(f"FASTEST {n} CONSECUTIVE LAPS   {fmt_overlay(win['total_ms'], decimals)}", "(w-text_w)/2", f"h-text_h-{mar}",
-                    round(fs_med * 1.25), color="#FFD54F", enable=en_end, box=0.65))
+    if ov["total"]:
+        parts.append(dt(range_name(), x_b, y_tot, fs_med))
+        parts += timer(s[0], f"lt(t,{s[n] - eps:.6f})", x_b, y_tot + round(fs_med * 1.7), fs_big)
+        parts.append(dt(fmt_overlay(win["total_ms"], decimals), x_b, y_tot + round(fs_med * 1.7), fs_big,
+                        color="#FFD54F", enable=en_end))
+    if ov["banner"]:
+        parts.append(dt(f"{banner_name()}   {fmt_overlay(win['total_ms'], decimals)}", "(w-text_w)/2", f"h-text_h-{mar}",
+                        round(fs_med * 1.25), color="#FFD54F", enable=en_end, box=0.65))
 
     matrix = {"bt470bg": "bt470", "smpte170m": "smpte170m", "bt709": "bt709", "bt2020nc": "bt2020",
               "bt2020c": "bt2020"}.get(info.get("matrix") or "", "bt709" if H >= 720 else "smpte170m")
@@ -1120,7 +1172,9 @@ class PictureRow:
         lab.setMinimumWidth(95)
         self.row1.addWidget(lab); self.row1.addWidget(self.edit, 1)
         self.row1.addWidget(self.browse); self.row1.addWidget(self.clear)
-        self.row2 = QHBoxLayout()
+        self.opts = QWidget()                              # 'Shown for' / 'Size': only visible once a picture is chosen
+        self.row2 = QHBoxLayout(self.opts)
+        self.row2.setContentsMargins(0, 0, 0, 0)
         self.row2.addSpacing(95)
         self.row2.addWidget(QLabel("Shown for:")); self.row2.addWidget(self.secs)
         self.row2.addSpacing(16)
@@ -1147,6 +1201,11 @@ class PictureRow:
         self.clear.setEnabled(has)
         self.secs.setEnabled(has)
         self.size.setEnabled(has)
+        if has != getattr(self, "opts_shown", None):
+            self.opts_shown = has
+            self.opts.setVisible(has)
+            if isinstance(getattr(self.dialog, "scroll", None), QScrollArea):   # dialog built: resize to the rows showing
+                self.dialog.fit_to_screen()
 
     def set_busy(self, busy):
         """While an export runs everything is locked; afterwards the boxes follow whether a picture is chosen."""
@@ -1219,7 +1278,10 @@ class ExportDialog(QDialog):
         super().__init__(parent)
         self.win = win
         n = len(win["lap_ms"])
-        self.setWindowTitle(f"Export fastest {n} laps as video")
+        self.custom = bool(win.get("custom"))
+        a0 = int(win.get("first_lap", 1))
+        self.range_text = f"laps {a0}-{a0 + n - 1}" if n > 1 else f"lap {a0}"           # "laps 5-8" / "lap 5"
+        self.setWindowTitle(f"Export {self.range_text} as video" if self.custom else f"Export fastest {n} laps as video")
         self.proc = None
         self.final = None
         self.part = None
@@ -1228,16 +1290,20 @@ class ExportDialog(QDialog):
         self.buf = ""
         self.cancelled = False
 
-        laps = "<br>".join(f"Lap {i + 1}: <b>{fmt(ms)}</b>" for i, ms in enumerate(win["lap_ms"]))
+        lap_no = int(win.get("first_lap", 1)) if win.get("custom") else 1
+        laps = " &nbsp;·&nbsp; ".join(f"Lap {lap_no + i}: <b>{fmt(ms)}</b>" for i, ms in enumerate(win["lap_ms"]))
         track = win["track"] or "No track"
-        summary = QLabel(f"<b>{html.escape(track)}</b> &nbsp;·&nbsp; {html.escape(vname(win['path']))}<br><br>{laps}<br><br>"
-                         f"Fastest {n} consecutive: <b>{fmt(win['total_ms'])}</b>")
+        summary = QLabel(f"<b>{html.escape(track)}</b> &nbsp;·&nbsp; {html.escape(vname(win['path']))}<br>{laps}<br>"
+                         + (f"{self.range_text.capitalize()}: <b>{fmt(win['total_ms'])}</b>" if self.custom
+                            else f"Fastest {n} consecutive: <b>{fmt(win['total_ms'])}</b>"))
         summary.setTextFormat(Qt.TextFormat.RichText)
+        summary.setWordWrap(True)
         source_dir = Path(win["path"]).parent                 # save next to the video it was cut from
         default_dir = source_dir if source_dir.is_dir() else Path.home() / "Videos"
         ms = int(round(win["total_ms"]))
         total = f"{ms / 1000:.3f}" if ms < 60000 else fmt(ms)   # under a minute: "25.737", not "0:25.737"
-        name = f"{track if win['track'] else Path(vname(win['path'])).stem} fastest {n} {total}.mp4"
+        what = self.range_text if self.custom else f"fastest {n}"
+        name = f"{track if win['track'] else Path(vname(win['path'])).stem} {what} {total}.mp4"
         name = re.sub(r'[\\/:*?"<>|]', "-", name)
         self.path_edit = QLineEdit(str((default_dir if default_dir.is_dir() else Path.home()) / name))
         browse = QPushButton("Browse…")
@@ -1271,8 +1337,9 @@ class ExportDialog(QDialog):
                                       "Footage kept before the first gate, with the lap timer waiting at 0.000")
         self.tail_spin = padding_spin("export_tail_s", EXPORT_TAIL_MS,
                                       "Footage kept after the last lap, with the final total on screen")
-        self.no_audio = QCheckBox("Remove audio")
-        self.no_audio.setToolTip("Export the video without a sound track")
+        self.no_audio = QCheckBox("Remove audio (whole video, including intro and outro)")
+        self.no_audio.setToolTip("Export with no sound track at all: the lap clip, the intro video and the outro video "
+                                 "are all silent")
         self.no_audio.setChecked(self.settings.value("export_no_audio", False, type=bool))
         self.audio_edit = QLineEdit()
         self.audio_edit.setPlaceholderText("none: keep the video's own audio")
@@ -1299,7 +1366,7 @@ class ExportDialog(QDialog):
         self.outro = ClipRow(self, "Outro video:", "export_outro",
                              "A video of your own played after the lap clip. It is fitted into the same frame size "
                              "and frame rate (black bars if the shape differs) and keeps its own sound.")
-        self.audio_all = QCheckBox("Replacement audio also plays over the intro video and outro video (added below)")
+        self.audio_all = QCheckBox("Replacement audio also plays over the intro video and outro video (added above)")
         self.audio_all.setToolTip("Off: the audio file covers only the lap clip, and the intro and outro keep their own "
                                   "sound. On: the audio file plays under the whole video, intro and outro included "
                                   "(their own sound is dropped).")
@@ -1343,6 +1410,23 @@ class ExportDialog(QDialog):
         self.highlight = QCheckBox("Highlight fastest lap")
         self.highlight.setToolTip("Show the fastest of the exported laps in gold in the finished-laps list")
         self.highlight.setChecked(self.settings.value("export_highlight", False, type=bool))
+        self.ov_size = QComboBox()
+        self.ov_size.setToolTip("Size of the timer text on the video")
+        for label, v in (("Small", 0.75), ("Medium", 1.0), ("Large", 1.25)):
+            self.ov_size.addItem(label, v)
+        i = self.ov_size.findData(float(self.settings.value("export_ov_size", 1.0)))
+        self.ov_size.setCurrentIndex(i if i >= 0 else 1)
+        def ov_check(key, text, tip, default=True):
+            box = QCheckBox(text)
+            box.setToolTip(tip)
+            box.setChecked(self.settings.value(key, default, type=bool))
+            return box
+        self.ov_swap = ov_check("export_ov_swap", "Swap sides", "Put the lap timer on the right and the total and track "
+                                "name on the left, to keep clear of your DVR's own on-screen display", default=False)
+        self.ov_list = ov_check("export_ov_list", "Lap list", "The list of finished laps under the lap timer")
+        self.ov_track = ov_check("export_ov_track", "Track name", "The track name above the total")
+        self.ov_total = ov_check("export_ov_total", "Total", "The running total of all the laps")
+        self.ov_banner = ov_check("export_ov_banner", "Banner", "The gold banner along the bottom at the end")
         self.reset_pad = QPushButton("Reset padding")
         self.reset_pad.setToolTip(f"Back to the defaults: {EXPORT_LEAD_MS / 1000:g} s before, "
                                   f"{EXPORT_TAIL_MS / 1000:g} s after")
@@ -1369,6 +1453,16 @@ class ExportDialog(QDialog):
         prow.addWidget(self.preview_on); prow.addWidget(self.preview_at); prow.addStretch(1)
         lay.addLayout(prow)
         lay.addWidget(self.preview_img, 0, Qt.AlignmentFlag.AlignHCenter)
+        def section(title):                                 # a bold heading with a thin rule under it
+            head = QLabel(f"<b>{title}</b>")
+            head.setStyleSheet("margin-top:6px")
+            rule = QFrame()
+            rule.setFrameShape(QFrame.Shape.HLine)
+            rule.setFrameShadow(QFrame.Shadow.Sunken)
+            lay.addWidget(head)
+            lay.addWidget(rule)
+
+        section("Output")
         row = QHBoxLayout(); row.addWidget(QLabel("Save as:")); row.addWidget(self.path_edit, 1); row.addWidget(browse)
         lay.addLayout(row)
         trow = QHBoxLayout()
@@ -1379,10 +1473,32 @@ class ExportDialog(QDialog):
         trow.addWidget(self.reset_pad)
         trow.addStretch(1)
         lay.addLayout(trow)
-        frow = QHBoxLayout(); frow.addWidget(QLabel("Frame rate:")); frow.addWidget(self.fps_combo)
-        frow.addSpacing(16); frow.addWidget(QLabel("Timer decimals:")); frow.addWidget(self.dec_combo)
-        frow.addSpacing(16); frow.addWidget(self.highlight); frow.addStretch(1)
+        frow = QHBoxLayout(); frow.addWidget(QLabel("Frame rate:")); frow.addWidget(self.fps_combo); frow.addStretch(1)
         lay.addLayout(frow)
+
+        section("Timer")
+        orow = QHBoxLayout()
+        orow.addWidget(QLabel("Text size:")); orow.addWidget(self.ov_size)
+        orow.addSpacing(16); orow.addWidget(QLabel("Decimals:")); orow.addWidget(self.dec_combo)
+        orow.addSpacing(16); orow.addWidget(self.ov_swap)
+        orow.addStretch(1)
+        lay.addLayout(orow)
+        srow = QHBoxLayout()
+        srow.addWidget(QLabel("Show:"))
+        for box in (self.ov_list, self.ov_track, self.ov_total, self.ov_banner):
+            srow.addWidget(box)
+        srow.addSpacing(16); srow.addWidget(self.highlight)
+        srow.addStretch(1)
+        lay.addLayout(srow)
+
+        section("Pictures")
+        for pic in (self.start_pic, self.end_pic):
+            lay.addLayout(pic.row1)
+            lay.addWidget(pic.opts)
+
+        section("Intro, outro and audio")
+        lay.addLayout(self.intro.row)
+        lay.addLayout(self.outro.row)
         lay.addWidget(self.no_audio)
         arow = QHBoxLayout()
         arow.addWidget(QLabel("Replace audio with:")); arow.addWidget(self.audio_edit, 1)
@@ -1391,11 +1507,6 @@ class ExportDialog(QDialog):
         lay.addWidget(self.audio_all)
         self.sync_audio_options()
         self.sync_audio_all()
-        for pic in (self.start_pic, self.end_pic):
-            lay.addLayout(pic.row1)
-            lay.addLayout(pic.row2)
-        lay.addLayout(self.intro.row)
-        lay.addLayout(self.outro.row)
         lay.addStretch(1)
         outer.addWidget(self.bar)
         outer.addWidget(self.status)
@@ -1409,10 +1520,18 @@ class ExportDialog(QDialog):
         for w in (self.start_pic.edit, self.end_pic.edit):
             w.textChanged.connect(self.refresh_preview)
         self.dec_combo.currentIndexChanged.connect(self.refresh_preview)
+        self.ov_size.currentIndexChanged.connect(self.refresh_preview)
+        for box in (self.ov_swap, self.ov_list, self.ov_track, self.ov_total, self.ov_banner):
+            box.toggled.connect(self.refresh_preview)
         self.highlight.toggled.connect(self.refresh_preview)
         self.preview_at.currentIndexChanged.connect(self.refresh_preview)
         self.preview_on.toggled.connect(self.refresh_preview)
         self.refresh_preview()
+
+    def overlay_options(self):
+        return {"size": self.ov_size.currentData(), "swap": self.ov_swap.isChecked(), "list": self.ov_list.isChecked(),
+                "track": self.ov_track.isChecked(), "total": self.ov_total.isChecked(),
+                "banner": self.ov_banner.isChecked()}
 
     def fit_to_screen(self):
         """Size the window to its contents, but never taller than the screen (the options scroll instead)."""
@@ -1482,7 +1601,7 @@ class ExportDialog(QDialog):
         argv, _ = build_export_args(self.win, self.win["path"], self.preview_file, font, self.preview_info,
                                     tail_ms=tail_ms, lead_ms=lead_ms, no_audio=True, pictures=pics,
                                     decimals=self.dec_combo.currentData(), preview_at=when, preview_w=PREVIEW_W,
-                                    highlight_fastest=self.highlight.isChecked())
+                                    highlight_fastest=self.highlight.isChecked(), overlay=self.overlay_options())
         self.stop_preview()
         self.preview_proc = QProcess(self)
         hide_console(self.preview_proc)
@@ -1595,6 +1714,10 @@ class ExportDialog(QDialog):
         self.intro.save()
         self.outro.save()
         self.settings.setValue("export_audio_all", self.audio_all.isChecked())
+        self.settings.setValue("export_ov_size", self.ov_size.currentData())
+        for key, box in (("swap", self.ov_swap), ("list", self.ov_list), ("track", self.ov_track),
+                         ("total", self.ov_total), ("banner", self.ov_banner)):
+            self.settings.setValue("export_ov_" + key, box.isChecked())
         self.settings.setValue("export_preview_on", self.preview_on.isChecked())
         self.settings.setValue("export_highlight", self.highlight.isChecked())
         self.settings.setValue("export_decimals", self.dec_combo.currentData())
@@ -1616,7 +1739,7 @@ class ExportDialog(QDialog):
                                                highlight_fastest=self.highlight.isChecked(),
                                                pictures=[self.start_pic.spec("start"), self.end_pic.spec("end")],
                                                intro=self.intro_spec, outro=self.outro_spec,
-                                               audio_all=self.audio_all.isChecked())
+                                               audio_all=self.audio_all.isChecked(), overlay=self.overlay_options())
         self.buf = ""
         self.proc = QProcess(self)
         hide_console(self.proc)
@@ -1635,6 +1758,8 @@ class ExportDialog(QDialog):
         self.stop_preview()
         self.dec_combo.setEnabled(False)
         self.highlight.setEnabled(False)
+        for w in (self.ov_size, self.ov_swap, self.ov_list, self.ov_track, self.ov_total, self.ov_banner):
+            w.setEnabled(False)
         for w in (self.audio_edit, self.audio_browse, self.audio_clear):
             w.setEnabled(False)
         self.start_pic.set_busy(True)
@@ -1691,6 +1816,9 @@ class ExportDialog(QDialog):
         self.lead_spin.setEnabled(True)
         self.tail_spin.setEnabled(True)
         self.reset_pad.setEnabled(True)
+        for w in (self.ov_size, self.ov_swap, self.ov_list, self.ov_track, self.ov_total, self.ov_banner,
+                  self.fps_combo, self.dec_combo, self.highlight):
+            w.setEnabled(True)
         self.sync_audio_options()
         self.start_pic.set_busy(False)
         self.end_pic.set_busy(False)
@@ -2006,6 +2134,13 @@ class AddVideosDialog(QDialog):
         top.addWidget(QLabel("Track:")); top.addWidget(self.bulk); top.addWidget(apply_btn)
         top.addStretch(1); top.addWidget(self.count)
         lay.addLayout(top)
+        self.note_edit = QLineEdit()
+        self.note_edit.setPlaceholderText("optional, e.g. 5S 2200 mAh, 5 in props, new tune")
+        self.note_edit.setToolTip("One note, saved on every video you add here. Change it later from the library's "
+                                  "right-click menu (Add note… / Edit note…).")
+        noterow = QHBoxLayout()
+        noterow.addWidget(QLabel("Note for all added videos:")); noterow.addWidget(self.note_edit, 1)
+        lay.addLayout(noterow)
         row = QHBoxLayout(); row.addStretch(1); row.addWidget(cancel); row.addWidget(self.add)
         lay.addLayout(row)
         self.update_count()
@@ -2055,6 +2190,9 @@ class AddVideosDialog(QDialog):
     def set_all(self, state):
         for r in self.checkable_rows():
             self.table.item(r, 0).setCheckState(state)
+
+    def note(self):
+        return self.note_edit.text().strip()
 
     def selected(self):
         """[(path, track)] for the ticked files; track '' means no track."""
@@ -2150,6 +2288,51 @@ class FixPathsDialog(QDialog):
 # ----------------------------------------------------------------------------
 # Track / session details dialog
 # ----------------------------------------------------------------------------
+class LapRangeDialog(QDialog):
+    """Pick which laps of the open video to export: 'from lap A to lap B'."""
+    def __init__(self, lap_ms, bad, first=1, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export chosen laps")
+        self.lap_ms, self.bad = lap_ms, bad
+        n = len(lap_ms)
+        self.a = QSpinBox(); self.b = QSpinBox()
+        for box in (self.a, self.b):
+            box.setRange(1, n)
+            box.setValue(min(max(first, 1), n))
+            box.valueChanged.connect(self.update_info)
+        self.a.valueChanged.connect(lambda v: self.b.setValue(max(self.b.value(), v)))
+        self.b.valueChanged.connect(lambda v: self.a.setValue(min(self.a.value(), v)))
+        self.info = QLabel()
+        self.info.setWordWrap(True)
+        form = QFormLayout(self)
+        intro = QLabel(f"This video has {n} lap{'s' if n != 1 else ''}. Choose the first and last lap to put in the "
+                       "video; for one lap, pick the same number twice.")
+        intro.setWordWrap(True)
+        form.addRow(intro)
+        form.addRow("From lap:", self.a)
+        form.addRow("To lap:", self.b)
+        form.addRow(self.info)
+        ok, cancel = QPushButton("Next…"), QPushButton("Cancel")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept); cancel.clicked.connect(self.reject)
+        row = QHBoxLayout(); row.addStretch(1); row.addWidget(cancel); row.addWidget(ok)
+        form.addRow(row)
+        self.update_info()
+
+    def update_info(self, *_):
+        a, b = self.a.value(), self.b.value()
+        total = sum(self.lap_ms[a - 1:b])
+        flagged = [i for i in range(a, b + 1) if self.bad[i - 1]]
+        text = f"{b - a + 1} lap{'s' if b != a else ''}, {fmt(total)} in all."
+        if flagged:
+            text += f" Lap{'s' if len(flagged) > 1 else ''} {', '.join(map(str, flagged))} " \
+                    f"{'are' if len(flagged) > 1 else 'is'} flagged bad (still included)."
+        self.info.setText(text)
+
+    def values(self):
+        return self.a.value(), self.b.value()
+
+
 class DetailsDialog(QDialog):
     """Edit the track name and session date of one or several videos."""
     def __init__(self, lib, vids, parent=None):
@@ -2162,6 +2345,13 @@ class DetailsDialog(QDialog):
         dates = {meta[v][1] for v in vids}
         multi = len(vids) > 1
         self.mixed_track = len(tracks) > 1
+        notes = {lib.notes_map().get(v, "") for v in vids}
+        self.mixed_notes = len(notes) > 1
+        self.notes = QLineEdit("" if self.mixed_notes else next(iter(notes)))
+        self.notes.setPlaceholderText("(various - leave blank to keep)" if self.mixed_notes
+                                      else "e.g. 5S 2200 mAh, 5 in props, new tune")
+        self.notes.setToolTip("Free text about the flight: battery, props, tune. Searchable in the library "
+                              "and saved in the CSV export.")
 
         self.track = QComboBox()
         self.track.setEditable(True)
@@ -2192,6 +2382,7 @@ class DetailsDialog(QDialog):
         form.addRow("Track:", self.track)
         form.addRow("Session date:", self.mode)
         form.addRow("", self.date)
+        form.addRow("Notes:", self.notes)
         ok, cancel = QPushButton("Save"), QPushButton("Cancel")
         ok.clicked.connect(self.accept); cancel.clicked.connect(self.reject)
         row = QHBoxLayout(); row.addStretch(1); row.addWidget(cancel); row.addWidget(ok)
@@ -2202,7 +2393,9 @@ class DetailsDialog(QDialog):
         track = KEEP if (self.mixed_track and not text) else text
         m = self.mode.currentIndex()
         date = KEEP if m == 0 else None if m == 1 else self.date.date().toString("yyyy-MM-dd")
-        return track, date
+        text = self.notes.text().strip()
+        notes = KEEP if (self.mixed_notes and not text) else text
+        return track, date, notes
 
 
 # ----------------------------------------------------------------------------
@@ -2249,9 +2442,9 @@ class StatsDialog(QDialog):
         self.dup_label.setStyleSheet("color:#ef6c00; font-weight:bold")
         lay.addWidget(self.dup_label)
 
-        self.table = QTableWidget(0, 8)
+        self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels(["Video", "Track", "Session date", "Laps (good/total)",
-                                              "Fastest lap", "Run (laps)", "Fastest run", "Avg good lap"])
+                                              "Fastest lap", "Run (laps)", "Fastest run", "Avg good lap", "Notes"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         lay.addWidget(self.table, 3)
 
@@ -2301,6 +2494,7 @@ class StatsDialog(QDialog):
     def rebuild(self):
         lib, track = self.lib, self.combo.currentData()
         meta, ids = lib.all_meta(), lib.video_ids(track)
+        notes = lib.notes_map()
         rmap = lib.run_map()
         rows, groups = [], {}
         for vid, path, _ in lib.videos():
@@ -2309,8 +2503,8 @@ class StatsDialog(QDialog):
             d, manual = effective_date(path, sdate)
             groups.setdefault(t, []).append((name, laps))
             if vid in ids:
-                rows.append((d, name, t, manual, laps))
-        lengths = {run_for(rmap, t) for _, _, t, _, _ in rows}
+                rows.append((d, name, t, manual, laps, notes.get(vid, "")))
+        lengths = {run_for(rmap, t) for _, _, t, _, _, _ in rows}
         n_head = next(iter(lengths)) if len(lengths) == 1 else (run_for(rmap, track) if not rows else None)
         rows.sort(key=lambda r: (r[0] is None, r[0] or datetime.min.date(), r[1].lower()))
 
@@ -2321,7 +2515,7 @@ class StatsDialog(QDialog):
             "are counted twice. Remove the extra entries from the library." if extras else "")
         self.dup_label.setVisible(bool(extras))
 
-        agg = self.summarise([(n, l) for _, n, _, _, l in rows], n_head)
+        agg = self.summarise([(n, l) for _, n, _, _, l, _ in rows], n_head)
         run_line = (f"Fastest {n_head} consecutive laps: {fmt(agg['bestn'][0]) if agg['bestn'] else '--'}"
                     f"{' &nbsp;(' + html.escape(agg['bestn'][1]) + ')' if agg['bestn'] else ''}" if n_head else
                     "Fastest run: each track has its own run length, see the tables below")
@@ -2338,17 +2532,17 @@ class StatsDialog(QDialog):
         for t, _, _ in views:
             t.setSortingEnabled(False)
         self.table.setRowCount(len(rows))
-        for r, (d, name, t, manual, laps) in enumerate(rows):
+        for r, (d, name, t, manual, laps, note) in enumerate(rows):
             n = run_for(rmap, t)
             s = lap_stats(laps, n)
             ds = (d.isoformat() + ("" if manual else " (file)")) if d else "--"
             vals = [name, t or "--", ds, f"{s['good']}/{s['total']}",
                     fmt(s["best"][0]) if s["best"] else "--", str(n),
                     fmt(s["bestn"][0]) if s["bestn"] else "--",
-                    fmt(s["avg"]) if s["avg"] else "--"]
+                    fmt(s["avg"]) if s["avg"] else "--", note]
             keys = [name.lower(), t.lower() if t else None, (d.toordinal(), name.lower()) if d else None,
                     (s["good"], s["total"]), s["best"][0] if s["best"] else None, n,
-                    s["bestn"][0] if s["bestn"] else None, s["avg"] or None]
+                    s["bestn"][0] if s["bestn"] else None, s["avg"] or None, note.lower() or None]
             for c, (v, k) in enumerate(zip(vals, keys)):
                 self.table.setItem(r, c, SortItem(v, k))
 
@@ -2733,6 +2927,491 @@ class LibraryDelegate(QStyledItemDelegate):
         p.restore()
 
 
+class ComparePane(QWidget):
+    """One side of the lap comparison: a video pane, a video / lap picker and a note when the smooth copy is missing."""
+    BIAS = 0.25                                            # seek a quarter frame late, as the main window does
+
+    def __init__(self, dialog, letter):
+        super().__init__()
+        self.dialog, self.letter = dialog, letter
+        self.video_info = None                             # dict of the chosen video, see CompareDialog.load_track
+        self.start = self.end = 0                          # the chosen lap, in the video's own time (ms)
+        self.ready, self.finished, self.src = False, False, None
+        self.player = QMediaPlayer(self)
+        audio = QAudioOutput(self)
+        audio.setMuted(True)                               # silent: two soundtracks at once would just be noise
+        self.player.setAudioOutput(audio)
+        self.video = QVideoWidget()
+        self.video.setMinimumSize(320, 180)
+        self.player.setVideoOutput(self.video)
+        self.player.mediaStatusChanged.connect(self.on_status)
+        self.video_combo, self.lap_combo = QComboBox(), QComboBox()
+        self.video_combo.setToolTip(f"Video for lap {letter}: the videos on this track that have laps marked")
+        self.lap_combo.setToolTip(f"Lap {letter}")
+        self.video_combo.currentIndexChanged.connect(self.fill_laps)
+        self.lap_combo.currentIndexChanged.connect(self.on_lap)
+        self.notice = QLabel()
+        self.notice.setWordWrap(True)
+        self.notice.setStyleSheet("color:#ef6c00; font-weight:bold")
+        self.build_btn = QPushButton("Build smooth copy")
+        self.build_btn.clicked.connect(lambda: dialog.build_for([self]))
+        self.notice.hide(); self.build_btn.hide()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        head = QHBoxLayout()
+        label = QLabel(f"<b>{letter}</b>")
+        head.addWidget(label); head.addWidget(self.video_combo, 1); head.addWidget(self.lap_combo)
+        lay.addLayout(head)
+        lay.addWidget(self.video, 1)
+        lay.addWidget(self.notice)
+        lay.addWidget(self.build_btn)
+
+    @property
+    def dur(self):
+        return max(0, self.end - self.start)
+
+    def set_videos(self, videos, select_vid=None, select_lap=None):
+        self.video_combo.blockSignals(True)
+        self.video_combo.clear()
+        for v in videos:
+            self.video_combo.addItem(f"{v['name']}  ·  {v['date'] or 'no date'}", v)
+        i = next((k for k, v in enumerate(videos) if v["vid"] == select_vid), 0)
+        self.video_combo.setCurrentIndex(i)
+        self.video_combo.blockSignals(False)
+        self.fill_laps(select_lap=select_lap, quiet=True)
+        self.on_lap()
+
+    def fill_laps(self, *_, select_lap=None, quiet=False):
+        v = self.video_combo.currentData()
+        self.lap_combo.blockSignals(True)
+        self.lap_combo.clear()
+        if v:
+            fastest = min((l for l in v["laps"] if not l[3]), key=lambda l: l[2] - l[1], default=None)
+            for lap in v["laps"]:
+                no, a, b, bad = lap
+                self.lap_combo.addItem(f"Lap {no}  ·  {fmt(b - a)}" + ("  (bad)" if bad else "")
+                                       + ("  ★" if lap is fastest else ""), lap)
+            i = next((k for k, l in enumerate(v["laps"]) if l[0] == select_lap), None)
+            if i is None and fastest is not None:
+                i = v["laps"].index(fastest)
+            self.lap_combo.setCurrentIndex(max(i or 0, 0))
+        self.lap_combo.blockSignals(False)
+        if not quiet:
+            self.on_lap()
+
+    def on_lap(self, *_):
+        v, lap = self.video_combo.currentData(), self.lap_combo.currentData()
+        self.video_info = v
+        if not v or not lap:
+            return
+        self.start, self.end = lap[1], lap[2]
+        self.finished = False
+        self.prepare()
+        self.dialog.selection_changed(self)
+
+    def prepare(self):
+        """Load the video's smooth copy, or ask for one if it has none."""
+        v = self.video_info
+        proxy = proxy_path(v["path"])
+        if not proxy.exists():
+            self.ready, self.src = False, None
+            self.player.setSource(QUrl())
+            self.show_missing()
+            return
+        self.notice.hide(); self.build_btn.hide()
+        if self.src != str(proxy):
+            self.ready, self.src = False, str(proxy)
+            self.player.setSource(QUrl.fromLocalFile(self.src))
+            self.player.pause()                            # (same copy already loaded: keep its state; ready stays as is)
+
+    def show_missing(self):
+        b = self.dialog.main.build
+        if not find_tool("ffmpeg"):
+            self.notice.setText("This video has no smooth copy, and ffmpeg is needed to build one (Help → Install ffmpeg…).")
+            self.build_btn.hide()
+        elif b and b["path"] == self.video_info["path"]:
+            pct = f" {b['pct']}%" if b["pct"] is not None else ""
+            self.notice.setText(f"Building the smooth copy…{pct} The comparison starts when it is ready.")
+            self.build_btn.hide()
+        elif any(p == self.video_info["path"] for _, p in self.dialog.main.build_queue):
+            self.notice.setText("The smooth copy is queued; the comparison starts when it is ready.")
+            self.build_btn.hide()
+        else:
+            self.notice.setText("This video has no smooth copy yet. Comparing needs one, so both laps can start on "
+                                "exactly their start-gate frame and stay in step.")
+            self.build_btn.show()
+        self.notice.show()
+
+    def on_status(self, status):
+        loaded = (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia)
+        if status in loaded and self.src and not self.ready:      # (seeking makes the status flip again: ignore that)
+            self.ready = True
+            self.dialog.pane_ready(self)                   # seeks to the lap's first frame...
+            self.player.pause()                            # ...then holds it, as the main window does
+
+    def seek(self, t):
+        """Show the frame `t` ms into the chosen lap (clamped to the lap)."""
+        rel = min(max(t, 0), self.dur)
+        self.finished = t >= self.dur
+        self.player.setPosition(int(self.start + rel + self.BIAS * self.dialog.frame_ms(self)))
+
+    def rel(self):
+        return self.player.position() - self.start
+
+    def shutdown(self):
+        self.player.stop()
+        self.player.setSource(QUrl())
+
+
+class CompareDialog(QDialog):
+    """Play two laps side by side, both starting on their start-gate frame, to see where one gains on the other.
+    The laps can come from different videos on the same track. Needs smooth copies (they seek to exact frames)."""
+    def __init__(self, main, track=None, parent=None):
+        super().__init__(parent or main)
+        self.main = main
+        self.setWindowTitle("Compare laps")
+        self.resize(1100, 640)
+        self.setModal(True)
+        self.playing = False
+        self.elapsed = 0.0
+        self.asked = set()                                 # videos we already offered to build a copy for
+        self.offer_pending = False
+        self.lib = main.lib
+        self.tracks = self.find_tracks()
+        self.track_combo = QComboBox()
+        for t in self.tracks:
+            self.track_combo.addItem(t or "(no track)", t)
+        i = self.track_combo.findData(track if track in self.tracks else (self.tracks[0] if self.tracks else ""))
+        self.track_combo.setCurrentIndex(max(i, 0))
+        self.a, self.b = ComparePane(self, "A"), ComparePane(self, "B")
+        self.play_btn = QPushButton("▶ Play")
+        self.play_btn.clicked.connect(self.toggle_play)
+        back, fwd = QPushButton("◀ Frame"), QPushButton("Frame ▶")
+        back.clicked.connect(lambda: self.step(-1)); fwd.clicked.connect(lambda: self.step(1))
+        self.speed = QComboBox()
+        for sp in (0.1, 0.25, 0.5, 1.0, 2.0):
+            self.speed.addItem(f"{sp:g}x", sp)
+        self.speed.setCurrentIndex(self.speed.findData(1.0))
+        self.speed.currentIndexChanged.connect(self.apply_speed)
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, 1)
+        self.slider.sliderMoved.connect(self.scrub)
+        self.time_label = QLabel("0:00.000 / 0:00.000")
+        self.summary = QLabel()
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
+        self.summary.setWordWrap(True)
+        self.empty = QLabel("Mark at least one lap (two gate marks) in some video first, then compare it with another.")
+        self.empty.setWordWrap(True)
+
+        lay = QVBoxLayout(self)
+        top = QHBoxLayout()
+        top.addWidget(QLabel("<b>Track:</b>")); top.addWidget(self.track_combo); top.addStretch(1)
+        lay.addLayout(top)
+        lay.addWidget(self.empty)
+        panes = QHBoxLayout()
+        panes.addWidget(self.a, 1); panes.addWidget(self.b, 1)
+        lay.addLayout(panes, 1)
+        lay.addWidget(self.summary)
+        self.controls = [self.play_btn, back, fwd, self.slider]          # usable once both laps are loaded
+        ctl = QHBoxLayout()
+        for w in (self.play_btn, back, fwd, QLabel("Speed:"), self.speed):
+            ctl.addWidget(w)
+        ctl.addWidget(self.slider, 1); ctl.addWidget(self.time_label)
+        lay.addLayout(ctl)
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        hint = QLabel(f"{main.key_text('step_back')} / {main.key_text('step_fwd')} step a frame · hold "
+                      f"{main.key_text('hold_back')} / {main.key_text('hold_fwd')} to play at 2x · "
+                      f"{main.key_text('play')} play / pause")
+        hint.setStyleSheet("color:gray")
+        row = QHBoxLayout(); row.addWidget(hint); row.addStretch(1); row.addWidget(close)
+        lay.addLayout(row)
+
+        for kid, fn in (("play", self.toggle_play), ("step_back", lambda: self.step(-1)), ("step_fwd", lambda: self.step(1))):
+            key = main.key_for(kid)
+            if key:
+                sc = QShortcut(QKeySequence(key), self)
+                sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+                sc.activated.connect(fn)
+        self.timer = QTimer(self)
+        self.timer.setInterval(40)
+        self.timer.timeout.connect(self.tick)
+        # hold-to-play keys, as in the main window (default Shift+Left / Shift+Right): 2x while held, stop on release
+        self.hold_bindings = {k: sp for kid, sp in (("hold_back", -2.0), ("hold_fwd", 2.0))
+                              if (k := main.key_for(kid))}
+        self.hold_key, self.hold_mods = None, set()
+        self.rev_timer = QTimer(self)                      # plays backwards by seeking, since players can't
+        self.rev_timer.setInterval(30)
+        self.rev_timer.timeout.connect(self.rev_tick)
+        self.rev_speed, self.rev_t = 2.0, 0.0
+        QApplication.instance().installEventFilter(self)
+        self.copy_timer = QTimer(self)                     # notices when a copy being built is ready
+        self.copy_timer.setInterval(700)
+        self.copy_timer.timeout.connect(self.check_copies)
+        self.copy_timer.start()
+        self.track_combo.currentIndexChanged.connect(lambda _: self.load_track())
+        self.load_track(first=True)
+
+    # ---- data
+    def find_tracks(self):
+        out = set()
+        meta = self.lib.all_meta()
+        for vid, _, _ in self.lib.videos():
+            if len(self.lib.marks(vid)) >= 2:
+                out.add(meta[vid][0])
+        return sorted(out, key=lambda t: (t == "", t.lower()))
+
+    def load_track(self, first=False):
+        self.pause()
+        track = self.track_combo.currentData()
+        videos, meta = [], self.lib.all_meta()
+        for vid, path, fps in self.lib.videos():
+            if vid not in meta or meta[vid][0] != (track or ""):
+                continue
+            m = self.lib.marks(vid)
+            laps = [(i, m[i - 1][1], m[i][1], bool(m[i][2])) for i in range(1, len(m))]
+            if not laps:
+                continue
+            d = effective_date(path, meta[vid][1])[0]
+            videos.append({"vid": vid, "path": path, "name": vname(path), "fps": fps or 30.0,
+                           "date": d.isoformat() if d else "", "laps": laps})
+        videos.sort(key=lambda v: (v["date"] == "", v["date"], v["name"].lower()))
+        self.videos = videos
+        has = bool(videos)
+        self.empty.setVisible(not has)
+        for w in (self.a, self.b):
+            w.setVisible(has)
+        if not has:
+            return
+        # A starts on the fastest good lap of the track; B on the open video's lap at the playhead (else its next best)
+        good = [(l[2] - l[1], v["vid"], l[0]) for v in videos for l in v["laps"] if not l[3]]
+        best = min(good) if good else (0, videos[0]["vid"], videos[0]["laps"][0][0])
+        b_vid, b_lap = None, None
+        mw = self.main
+        if first and mw.vid is not None and any(v["vid"] == mw.vid for v in videos):
+            row = mw.lap_at(mw.cursor_ms)
+            if row:
+                b_vid, b_lap = mw.vid, row
+        if b_vid is None or (b_vid, b_lap) == (best[1], best[2]):
+            rest = sorted(g for g in good if (g[1], g[2]) != (best[1], best[2]))
+            b_vid, b_lap = (rest[0][1], rest[0][2]) if rest else (best[1], best[2])
+        self.a.set_videos(videos, best[1], best[2])
+        self.b.set_videos(videos, b_vid, b_lap)
+
+    # ---- helpers
+    def panes(self):
+        return [p for p in (self.a, self.b) if p.video_info]
+
+    def active(self):
+        return [p for p in self.panes() if p.ready]
+
+    def maxdur(self):
+        return max((p.dur for p in self.panes()), default=0)
+
+    def frame_ms(self, pane):
+        return 1000.0 / ((pane.video_info or {}).get("fps") or 30.0)
+
+    def selection_changed(self, pane):
+        self.pause()
+        self.elapsed = 0.0
+        self.slider.setRange(0, int(self.maxdur()))
+        self.slider.setValue(0)
+        self.update_labels()
+        if not self.offer_pending:                         # once, after both panes have settled on their choice
+            self.offer_pending = True
+            QTimer.singleShot(0, self.offer_build)
+        if all(p.ready for p in self.panes()):
+            self.seek_all(0)
+            self.settle_seek()
+
+    def pane_ready(self, pane):
+        self.seek_all(self.elapsed)
+        self.settle_seek()
+
+    def settle_seek(self):
+        """A seek made the instant media loads (or a lap changes) can be dropped by the player: repeat it once settled."""
+        QTimer.singleShot(250, lambda: None if self.playing else self.seek_all(self.elapsed))
+
+    def offer_build(self):
+        """Ask whether to build the smooth copies the chosen laps are missing (once per video)."""
+        self.offer_pending = False
+        panes = [p for p in self.panes() if not proxy_path(p.video_info["path"]).exists()
+                 and p.video_info["vid"] not in self.asked]
+        if not panes or not find_tool("ffmpeg"):
+            return
+        names = sorted({p.video_info["name"] for p in panes})
+        for p in panes:
+            self.asked.add(p.video_info["vid"])
+        shown = "\n".join("• " + n for n in names[:6]) + (f"\n…and {len(names) - 6} more" if len(names) > 6 else "")
+        box = QMessageBox(self)
+        box.setWindowTitle("Smooth copy needed")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText("Comparing laps needs a smooth-scrub copy of each video, so both laps start on exactly their gate "
+                    f"frame and stay in step:\n\n{shown}\n\nBuild {'it' if len(names) == 1 else 'them'} now? "
+                    "It runs in the background and the comparison starts by itself when it is ready.")
+        build = box.addButton("Build now", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is build:
+            self.build_for(panes)
+
+    def build_for(self, panes):
+        for p in panes:
+            v = p.video_info
+            self.main.request_proxy(v["vid"], v["path"], front=True, manual=True)
+            p.show_missing()
+        self.main.update_proxy_ui()
+
+    def check_copies(self):
+        for p in self.panes():
+            if not p.ready:
+                if proxy_path(p.video_info["path"]).exists() and p.src is None:
+                    p.prepare()
+                elif not proxy_path(p.video_info["path"]).exists():
+                    p.show_missing()
+
+    # ---- transport
+    def toggle_play(self):
+        self.pause() if self.playing else self.play()
+
+    def play(self, rate=None):
+        act = self.active()
+        if not act or len(act) < len(self.panes()):
+            return
+        if self.elapsed >= self.maxdur() - 1:
+            self.seek_all(0)
+        for p in act:
+            p.seek(self.elapsed)                           # a seek made while the media was still loading can be lost
+            p.player.setPlaybackRate(rate or self.speed.currentData())
+            if not p.finished:
+                p.player.play()
+        self.playing = True
+        self.play_btn.setText("⏸ Pause")
+        self.timer.start()
+
+    def pause(self):
+        self.rev_timer.stop()
+        for p in self.panes():
+            p.player.pause()
+        self.playing = False
+        self.play_btn.setText("▶ Play")
+        self.timer.stop()
+
+    def apply_speed(self):
+        for p in self.panes():
+            p.player.setPlaybackRate(self.speed.currentData())
+
+    def seek_all(self, t):
+        self.elapsed = min(max(float(t), 0.0), float(self.maxdur()))
+        for p in self.active():
+            p.seek(self.elapsed)
+        self.slider.blockSignals(True)
+        self.slider.setValue(int(self.elapsed))
+        self.slider.blockSignals(False)
+        self.update_labels()
+
+    def scrub(self, v):
+        self.pause()
+        self.seek_all(v)
+
+    def step(self, n):
+        act = self.active()
+        if not act:
+            return
+        self.pause()
+        self.seek_all(self.elapsed + n * self.frame_ms(act[0]))
+
+    def eventFilter(self, obj, ev):
+        t = ev.type()
+        if t == QEvent.Type.KeyPress:
+            k = ev.key()
+            if self.hold_key is not None and k == self.hold_key:
+                return True                                  # swallow auto-repeat while holding
+            if self.hold_bindings and QApplication.activeWindow() is self:
+                mods = ev.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+                combo = QKeySequence(QKeyCombination(mods, Qt.Key(k))).toString(PORTABLE)
+                speed = self.hold_bindings.get(combo)
+                if speed is not None:
+                    self.hold_key = k
+                    self.hold_mods = {key for flag, key in (
+                        (Qt.KeyboardModifier.ShiftModifier, Qt.Key.Key_Shift),
+                        (Qt.KeyboardModifier.ControlModifier, Qt.Key.Key_Control),
+                        (Qt.KeyboardModifier.AltModifier, Qt.Key.Key_Alt),
+                        (Qt.KeyboardModifier.MetaModifier, Qt.Key.Key_Meta)) if mods & flag}
+                    self.start_hold(speed)
+                    return True
+        elif t == QEvent.Type.KeyRelease and self.hold_key is not None and not ev.isAutoRepeat():
+            if ev.key() == self.hold_key or ev.key() in self.hold_mods:
+                self.hold_key = None
+                self.pause()
+                return True
+        elif t == QEvent.Type.WindowDeactivate and obj is self and self.hold_key is not None:
+            self.hold_key = None                             # lost focus: we would never see the release
+            self.pause()
+        return super().eventFilter(obj, ev)
+
+    def start_hold(self, speed):
+        act = self.active()
+        if not act or len(act) < len(self.panes()):
+            return
+        self.pause()
+        if speed > 0:
+            self.play(rate=speed)
+        else:                                                # backwards: step the two videos back in real time
+            self.rev_speed, self.rev_t = abs(speed), time.monotonic()
+            self.rev_timer.start()
+
+    def rev_tick(self):
+        now = time.monotonic()
+        dt, self.rev_t = now - self.rev_t, now
+        self.seek_all(self.elapsed - self.rev_speed * 1000 * dt)
+        if self.elapsed <= 0:
+            self.rev_timer.stop()
+
+    def tick(self):
+        act = self.active()
+        for p in act:                                      # a lap that has reached its finish gate stops on that frame
+            if not p.finished and p.rel() >= p.dur:
+                p.finished = True
+                p.player.pause()
+                p.player.setPosition(int(p.end + p.BIAS * self.frame_ms(p)))
+        running = [p for p in act if not p.finished]
+        if not running:
+            self.elapsed = float(self.maxdur())
+            self.pause()
+        else:
+            lead = running[0]
+            self.elapsed = float(max(0, lead.rel()))
+            for p in running[1:]:                          # keep the two in step (they drift a few ms at most)
+                if abs(p.rel() - lead.rel()) > 80:
+                    p.player.setPosition(int(p.start + lead.rel() + p.BIAS * self.frame_ms(p)))
+        self.slider.blockSignals(True)
+        self.slider.setValue(int(self.elapsed))
+        self.slider.blockSignals(False)
+        self.update_labels()
+
+    def update_labels(self):
+        self.time_label.setText(f"{fmt(self.elapsed)} / {fmt(self.maxdur())}")
+        ps = self.panes()
+        ok = len(ps) == 2 and all(p.ready for p in ps)
+        for w in self.controls:
+            w.setEnabled(ok)
+        if len(ps) == 2:
+            da, db = ps[0].dur, ps[1].dur
+            diff = db - da
+            verdict = ("the same time" if diff == 0 else
+                       f"<b>{abs(diff) / 1000:.3f} s {'slower' if diff > 0 else 'faster'}</b> than A")
+            self.summary.setText(f"A: <b>{fmt(da)}</b> &nbsp;·&nbsp; B: <b>{fmt(db)}</b> &nbsp;→&nbsp; B is {verdict}. "
+                                 "Both start on their start-gate frame; whichever reaches a gate or corner first is ahead.")
+
+    def done(self, result):
+        QApplication.instance().removeEventFilter(self)
+        self.timer.stop(); self.copy_timer.stop(); self.rev_timer.stop()
+        for p in (self.a, self.b):
+            p.shutdown()
+        super().done(result)
+
+
 class LapRowDelegate(QStyledItemDelegate):
     """Draws a teal frame round the table row of the lap the playhead is in (`row`; None = no lap)."""
     COLOR = "#00acc1"
@@ -2828,6 +3507,16 @@ class MainWindow(QMainWindow):
         for label, key in (("Show: all videos", None), ("Show: not marked yet", False), ("Show: marked only", True)):
             self.marked_filter.addItem(label, key)
         self.marked_filter.currentIndexChanged.connect(lambda _: self.refresh_library())
+        self.search = QLineEdit()
+        self.search.setClearButtonEnabled(True)
+        self.search.setAcceptDrops(False)                    # a line edit eats dropped files; let them reach the window
+        self.search.setPlaceholderText("Search name, track or notes…")
+        self.search.setToolTip("Show only videos whose file name, track or notes contain this text")
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(250)                  # wait for a pause in typing
+        self.search_timer.timeout.connect(self.refresh_library)
+        self.search.textChanged.connect(lambda _: self.search_timer.start())
         self.sort_box = QComboBox()
         self.sort_box.setToolTip("Order of the videos in the list. Videos with no lap times yet go last.")
         for label, key in (("Sort: date (oldest first)", "date"), ("Sort: date (newest first)", "newest"),
@@ -2851,8 +3540,8 @@ class MainWindow(QMainWindow):
         remove.clicked.connect(self.remove_selected)
         stats_btn = QPushButton("Library stats")
         stats_btn.clicked.connect(lambda: StatsDialog(self.lib, self, self.track_filter.currentData()).exec())
-        details = QPushButton("Track / date…")
-        details.setToolTip("Set the track name and session date of the selected video(s)")
+        details = QPushButton("Track / date / notes…")
+        details.setToolTip("Set the track name, session date and notes of the selected video(s)")
         details.clicked.connect(self.edit_details)
         left = QWidget()
         ll = QVBoxLayout(left)
@@ -2860,6 +3549,7 @@ class MainWindow(QMainWindow):
         ll.addWidget(self.track_filter)
         ll.addWidget(self.sort_box)
         ll.addWidget(self.marked_filter)
+        ll.addWidget(self.search)
         ll.addWidget(self.lib_list)
         ll.addWidget(details)
         r1 = QHBoxLayout(); r1.addWidget(add_files); r1.addWidget(add_folder)
@@ -3039,6 +3729,15 @@ class MainWindow(QMainWindow):
         run_row.addWidget(self.run_reset); run_row.addStretch(1)
         rl.addLayout(run_row)
         rl.addWidget(self.run_btn)
+        self.laps_btn = QPushButton("Export laps…")
+        self.laps_btn.setToolTip("Export any lap, or any run of consecutive laps, of this video (not only the fastest)")
+        self.laps_btn.clicked.connect(self.export_chosen_laps)
+        self.compare_btn = QPushButton("Compare laps…")
+        self.compare_btn.setToolTip("Play two laps side by side, even from different videos on the same track "
+                                    "(needs smooth copies)")
+        self.compare_btn.clicked.connect(self.open_compare)
+        lr = QHBoxLayout(); lr.addWidget(self.laps_btn); lr.addWidget(self.compare_btn)
+        rl.addLayout(lr)
         self.refresh_run_box()
         rl.addWidget(self.stats_label)
 
@@ -3089,6 +3788,8 @@ class MainWindow(QMainWindow):
         lib_menu.addAction("&Export library…").triggered.connect(self.export_library)
         lib_menu.addAction("&Import library (replace)…").triggered.connect(self.import_library)
         lib_menu.addAction("&Merge library…").triggered.connect(self.merge_library)
+        lib_menu.addSeparator()
+        lib_menu.addAction("&Compare laps…").triggered.connect(self.open_compare)
 
         # --- Edit > undo / redo of mark changes
         edit_menu = self.menuBar().addMenu("&Edit")
@@ -3492,9 +4193,12 @@ class MainWindow(QMainWindow):
                     pb[(track, field)] = (st[field][0],)
         want_marked = self.marked_filter.currentData()
         marked = self.lib.marked_ids()
+        notes = self.lib.notes_map()
+        query = self.search.text().strip().lower()
         entries = [e for e in everything
                    if (show is None or meta[e[1]][0] == show)
-                   and (want_marked is None or (e[1] in marked) == want_marked)]
+                   and (want_marked is None or (e[1] in marked) == want_marked)
+                   and (not query or query in f"{vname(e[2])} {meta[e[1]][0]} {notes.get(e[1], '')}".lower())]
         by_date = lambda e: (e[0] is None, e[0] or datetime.min.date(), e[2].lower())
         sort_key = self.sort_box.currentData()
         if sort_key in ("lap", "run"):
@@ -3527,7 +4231,8 @@ class MainWindow(QMainWindow):
                 "name": vname(path), "date": d.isoformat() if d else "", "ready": ready,
                 "dup": vid in dup_of, "exists": exists, "locked": vid in locked})
             item.setData(Qt.ItemDataRole.UserRole, (vid, path, fps))
-            item.setToolTip(path + ("" if exists else "\n(file not found - double-click to locate)")
+            item.setToolTip(path + (f"\n📝 {notes[vid]}" if notes.get(vid) else "")
+                            + ("" if exists else "\n(file not found - double-click to locate)")
                             + ("\n🔒 Smooth copy is not built automatically (right-click to change)" if vid in locked else "")
                             + ("\n⚠ Same file is also in the library as: " + "; ".join(dup_of[vid])
                                + "\nIts laps are counted twice in stats. Remove one of them." if vid in dup_of else ""))
@@ -3577,7 +4282,7 @@ class MainWindow(QMainWindow):
         n_sub = len({Path(shown).parent for _, shown, _, _ in entries if Path(shown).parent != Path(".")})
         intro = (f"{len(entries)} video file(s) found {what}" + (f", in {n_sub} subfolder(s)" if n_sub else "") +
                  ". Untick any you don't want to add, and choose the track for each file (or for all the ticked "
-                 "files at once with the Track box below).")
+                 "files at once with the Track box below). The note, if you type one, is saved on every video you add.")
         shown_track = self.track_filter.currentData()
         default_track = shown_track if isinstance(shown_track, str) and shown_track not in (NEW_TRACK, RENAME_TRACK, DELETE_TRACK) else ""
         dlg = AddVideosDialog(entries, self.lib.tracks(), default_track, self, title, intro)
@@ -3586,11 +4291,12 @@ class MainWindow(QMainWindow):
             used = {t for _, t in chosen}
             if shown_track is not None and shown_track not in used:      # keep the new videos visible
                 self.pending_filter = next(iter(used)) if len(used) == 1 else None
-            self.add_paths([p for p, _ in chosen], tracks={str(Path(p).resolve()): t for p, t in chosen})
+            self.add_paths([p for p, _ in chosen], tracks={str(Path(p).resolve()): t for p, t in chosen},
+                           note=dlg.note())
 
-    def add_paths(self, paths, tracks=None):
+    def add_paths(self, paths, tracks=None, note=""):
         """Add videos to the library. `tracks` ({resolved path: track name, '' = none}) sets each new video's
-        track; without it new videos join the track being viewed."""
+        track; without it new videos join the track being viewed. `note` is saved on every new video."""
         paths = [p for p in paths if Path(p).suffix.lower() in VIDEO_EXTS]
         if not paths:
             return
@@ -3618,6 +4324,8 @@ class MainWindow(QMainWindow):
                     own = tracks.get(resolved, track) if tracks is not None else track
                     if own:
                         self.lib.set_meta([vid], track=own)
+                    if note:
+                        self.lib.set_notes([vid], note)
                 if ident:
                     existing[ident] = resolved
         finally:
@@ -3801,7 +4509,10 @@ class MainWindow(QMainWindow):
         clear.setEnabled(current != {""})
         clear.triggered.connect(lambda: self.assign_track(vids, ""))
         menu.addSeparator()
-        menu.addAction("Track && session date…").triggered.connect(self.edit_details)
+        notes = self.lib.notes_map()
+        same = {notes.get(v, "") for v in vids}
+        menu.addAction("Edit note…" if same != {""} else "Add note…").triggered.connect(lambda: self.edit_notes(vids))
+        menu.addAction("Track, date && notes…").triggered.connect(self.edit_details)
         menu.addSeparator()
         menu.addAction("Remove from library" if len(vids) == 1 else f"Remove {len(vids)} videos from library"
                        ).triggered.connect(lambda: self.remove_selected(vids))
@@ -3877,6 +4588,24 @@ class MainWindow(QMainWindow):
             item.setSelected(True)
         self.make_library_menu(self.selected_vids()).exec(self.lib_list.viewport().mapToGlobal(pos))
 
+    def edit_notes(self, vids):
+        """Quick note for the given videos (right-click menu). With videos whose notes differ, the box starts empty
+        and leaving it empty keeps them as they are."""
+        notes = self.lib.notes_map()
+        existing = {notes.get(v, "") for v in vids}
+        mixed = len(existing) > 1
+        what = f"{len(vids)} videos" if len(vids) > 1 else vname({v: p for v, p, _ in self.lib.videos()}[vids[0]])
+        text, ok = QInputDialog.getText(
+            self, "Note", f"Note for {what}" + (" (they have different notes; leave empty to keep them)" if mixed else "")
+            + ":\nbattery, props, tune…", QLineEdit.EchoMode.Normal, "" if mixed else next(iter(existing)))
+        if not ok or (mixed and not text.strip()):
+            return
+        self.lib.set_notes(vids, text)
+        self.update_title()
+        self.refresh_library()
+        self.reselect(vids)
+        self.statusBar().showMessage("Note saved" if text.strip() else "Note cleared", 3000)
+
     def edit_details(self):
         vids = self.selected_vids()
         if not vids:
@@ -3884,8 +4613,11 @@ class MainWindow(QMainWindow):
             return
         dlg = DetailsDialog(self.lib, vids, self)
         if dlg.exec():
-            track, date = dlg.values()
+            track, date, notes = dlg.values()
             self.lib.set_meta(vids, track, date)
+            if notes is not KEEP:
+                self.lib.set_notes(vids, notes)
+            self.update_title()
             self.refresh_library()
             self.reselect(vids)
 
@@ -3900,6 +4632,14 @@ class MainWindow(QMainWindow):
         if item is not None:
             self.open_video(*item.data(Qt.ItemDataRole.UserRole))
 
+    def update_title(self):
+        """The line above the video: its name, and its notes in grey."""
+        if self.vid is None or not self.cur_path:
+            return
+        note = self.lib.notes_map().get(self.vid, "")
+        self.title_label.setText(f"<b>{html.escape(vname(self.cur_path))}</b>"
+                                 + (f" &nbsp;<span style='color:gray'>{html.escape(note)}</span>" if note else ""))
+
     def open_video(self, vid, path, fps):
         if not os.path.exists(path):
             new, _ = QFileDialog.getOpenFileName(self, f"Locate {vname(path)}", str(Path(path).parent),
@@ -3911,7 +4651,7 @@ class MainWindow(QMainWindow):
         if vid != self.vid:
             self.clear_undo()
         self.vid, self.fps = vid, fps or 30.0
-        self.title_label.setText(f"<b>{html.escape(vname(path))}</b>")
+        self.update_title()
         self.cur_path = path
         self.set_shuttle(0)
         self.cursor_ms = 0.0
@@ -4649,6 +5389,37 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export",
                                     f"This video needs {n} good laps in a row (bad laps break the run) first.")
             return
+        ExportDialog(win, self).exec()
+
+    def open_compare(self):
+        track = None
+        if self.vid is not None:
+            track = self.lib.all_meta().get(self.vid, ("", None))[0]
+        else:
+            shown = self.track_filter.currentData()
+            track = shown if isinstance(shown, str) and shown not in (NEW_TRACK, RENAME_TRACK, DELETE_TRACK) else None
+        self.set_shuttle(0)
+        self.player.pause()
+        CompareDialog(self, track).exec()
+
+    def export_chosen_laps(self):
+        """Export laps A to B of the open video, picked by the user, with the same export window as the fastest run."""
+        if self.vid is None or len(self.mark_rows) < 2:
+            self.statusBar().showMessage("Mark at least two gates (one lap) in the open video first", 4000)
+            return
+        marks = self.mark_rows
+        lap_ms = [marks[i][1] - marks[i - 1][1] for i in range(1, len(marks))]
+        row = self.lap_at(self.cursor_ms)                    # start on the lap at the playhead (else the last one)
+        dlg = LapRangeDialog(lap_ms, [bool(m[2]) for m in marks[1:]], row if row else len(lap_ms), self)
+        if not dlg.exec():
+            return
+        a, b = dlg.values()
+        ms = [marks[k][1] for k in range(a - 1, b + 1)]
+        meta = self.lib.all_meta().get(self.vid, ("", None))
+        d = effective_date(self.cur_path, meta[1])[0]
+        win = {"vid": self.vid, "path": self.cur_path, "track": meta[0], "date": d.isoformat() if d else "",
+               "marks_ms": ms, "lap_ms": [ms[k + 1] - ms[k] for k in range(len(ms) - 1)], "total_ms": ms[-1] - ms[0],
+               "custom": True, "first_lap": a, "laps_in_video": len(lap_ms)}
         ExportDialog(win, self).exec()
 
     def show_chart(self):
