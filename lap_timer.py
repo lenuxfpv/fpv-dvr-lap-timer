@@ -194,6 +194,30 @@ def seen_key(path):
     return "|".join(str(x) for x in ident) if ident else str(Path(path).resolve())
 
 
+def _folder_norm(path):
+    return os.path.normcase(os.path.abspath(str(path)))
+
+
+def under_folder(path, folder):
+    """True if `path` is `folder` itself or somewhere below it (case-insensitive on Windows)."""
+    p, f = _folder_norm(path), _folder_norm(folder)
+    return p == f or p.startswith(f.rstrip(os.sep) + os.sep)
+
+
+def scan_videos(root, excluded=()):
+    """Every video file below `root`, not looking inside the `excluded` folders (nor anything below them)."""
+    skip = {_folder_norm(f) for f in excluded}
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if _folder_norm(os.path.join(dirpath, d)) not in skip]
+        for name in filenames:
+            if Path(name).suffix.lower() in VIDEO_EXTS:
+                p = Path(dirpath) / name
+                if p.is_file():
+                    found.append(p)
+    return found
+
+
 def probe_video(path):
     """Return (fps, duration_ms) using ffprobe; falls back to (30.0, None)."""
     ffprobe = find_ffprobe()
@@ -337,6 +361,8 @@ class Library:
             CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY);
             -- files the DVR-folder check has already offered (added, skipped or exported by this app), by name|size|mtime
             CREATE TABLE IF NOT EXISTS watch_seen (path TEXT PRIMARY KEY);
+            -- folders the DVR-folder check never looks in (with everything below them)
+            CREATE TABLE IF NOT EXISTS watch_excluded (folder TEXT PRIMARY KEY);
             -- the track you last gave videos from a folder of this name (so the add list suggests it next time)
             CREATE TABLE IF NOT EXISTS folder_tracks (folder TEXT PRIMARY KEY, track TEXT NOT NULL);
             -- per-track "fastest run of N laps"; a track with no row uses the global default
@@ -382,6 +408,19 @@ class Library:
 
     def mark_watch_seen(self, paths):
         self.db.executemany("INSERT OR IGNORE INTO watch_seen(path) VALUES(?)", [(str(p),) for p in paths])
+        self.db.commit()
+
+    def watch_excluded(self):
+        return sorted((r[0] for r in self.db.execute("SELECT folder FROM watch_excluded")), key=str.lower)
+
+    def set_watch_excluded(self, folders):
+        self.db.execute("DELETE FROM watch_excluded")
+        self.db.executemany("INSERT OR IGNORE INTO watch_excluded(folder) VALUES(?)",
+                            [(os.path.abspath(str(f)),) for f in folders])
+        self.db.commit()
+
+    def exclude_watch_folder(self, folder):
+        self.db.execute("INSERT OR IGNORE INTO watch_excluded(folder) VALUES(?)", (os.path.abspath(str(folder)),))
         self.db.commit()
 
     def clear_watch_seen(self):
@@ -638,6 +677,7 @@ class Library:
             self.db.execute("ALTER TABLE videos ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
         self.db.execute("CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY)")
         self.db.execute("CREATE TABLE IF NOT EXISTS watch_seen (path TEXT PRIMARY KEY)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS watch_excluded (folder TEXT PRIMARY KEY)")
         self.db.execute("CREATE TABLE IF NOT EXISTS folder_tracks (folder TEXT PRIMARY KEY, track TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS track_settings (track TEXT PRIMARY KEY, run_length INTEGER NOT NULL)")
         self.db.commit()
@@ -2132,8 +2172,10 @@ class AddVideosDialog(QDialog):
     NEW_TRACK_TEXT = "＋ New track…"
 
     def __init__(self, entries, tracks, default_track="", parent=None, title="Add videos", intro="", suggest=None,
-                 skip_ok=False):
+                 skip_ok=False, exclude_cb=None, exclude_root=None):
         super().__init__(parent)
+        self.exclude_cb = exclude_cb                # DVR check: called with a folder the user never wants checked
+        self.exclude_root = exclude_root            # the DVR folder itself (it can't be excluded, only folders below it)
         self.skip_ok = skip_ok                      # DVR check: with nothing ticked the button can still 'skip' them all
         self.setWindowTitle(title)
         self.resize(900, 560)
@@ -2180,6 +2222,9 @@ class AddVideosDialog(QDialog):
             self.table.setCellWidget(r, 3, combo)
             self.combos.append(combo)
         self.table.itemChanged.connect(self.update_count)
+        if exclude_cb and exclude_root:
+            self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.table.customContextMenuRequested.connect(self.row_menu)
 
         self.count = QLabel()
         all_btn, none_btn = QPushButton("Select all"), QPushButton("Select none")
@@ -2255,6 +2300,33 @@ class AddVideosDialog(QDialog):
             if combo.isEnabled() and self.table.item(r, 0).checkState() == Qt.CheckState.Checked:
                 self.fill_combo(combo, track)
 
+    # ---- folders the DVR check should never look in
+    def row_menu(self, pos):
+        r = self.table.rowAt(pos.y())
+        item = self.table.item(r, 1) if r >= 0 else None
+        if item is None:
+            return
+        folder = Path(item.data(Qt.ItemDataRole.UserRole)).parent
+        menu = QMenu(self)
+        while folder != self.exclude_root and under_folder(folder, self.exclude_root):
+            act = menu.addAction(f"Never check the folder “{folder.name}” (and what is inside it)")
+            act.setToolTip(str(folder))
+            act.triggered.connect(lambda _c=False, f=folder: self.exclude_folder(f))
+            folder = folder.parent
+        if menu.isEmpty():
+            menu.addAction("This video sits directly in the DVR folder, which can't be excluded").setEnabled(False)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def exclude_folder(self, folder):
+        self.exclude_cb(folder)
+        for r in range(self.table.rowCount()):             # take its videos out of this list
+            if under_folder(self.table.item(r, 1).data(Qt.ItemDataRole.UserRole), folder):
+                tick = self.table.item(r, 0)
+                tick.setCheckState(Qt.CheckState.Unchecked)
+                tick.setFlags(tick.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+                self.table.setRowHidden(r, True)
+        self.update_count()
+
     # ---- ticking
     def checkable_rows(self):
         return [r for r in range(self.table.rowCount())
@@ -2274,7 +2346,7 @@ class AddVideosDialog(QDialog):
 
     def update_count(self, *_):
         n, total = len(self.selected()), len(self.checkable_rows())
-        known = self.table.rowCount() - total
+        known = sum(1 for r in range(self.table.rowCount()) if not self.table.isRowHidden(r)) - total
         self.count.setText(f"{n} of {total} selected" + (f"  ({known} already in the library)" if known else ""))
         if n == 0 and self.skip_ok and total:
             self.add.setText(f"Don't add {'it' if total == 1 else 'these'} (never offer again)")
@@ -2287,6 +2359,49 @@ class AddVideosDialog(QDialog):
 # ----------------------------------------------------------------------------
 # Fix paths dialog
 # ----------------------------------------------------------------------------
+class ExcludedFoldersDialog(QDialog):
+    """The folders the DVR check never looks in (with everything below them), without touching your folders."""
+
+    def __init__(self, folders, start_dir, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Folders the DVR check skips")
+        self.resize(640, 360)
+        self.start_dir = start_dir
+        lay = QVBoxLayout(self)
+        intro = QLabel("The DVR check never looks in these folders or anything inside them. Your folders are not "
+                       "changed, and “Offer skipped videos again” does not bring these back. You can also add a "
+                       "folder by right-clicking a video in the list of new videos.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        self.list = QListWidget()
+        self.list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        for f in folders:
+            self.list.addItem(f)
+        lay.addWidget(self.list, 1)
+        add, remove = QPushButton("Add folder…"), QPushButton("Remove selected")
+        add.clicked.connect(self.add_folder)
+        remove.clicked.connect(self.remove_selected)
+        ok, cancel = QPushButton("Save"), QPushButton("Cancel")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        cancel.clicked.connect(self.reject)
+        row = QHBoxLayout()
+        row.addWidget(add); row.addWidget(remove); row.addStretch(1); row.addWidget(cancel); row.addWidget(ok)
+        lay.addLayout(row)
+
+    def add_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Folder the DVR check should skip", self.start_dir)
+        if folder and not self.list.findItems(os.path.abspath(folder), Qt.MatchFlag.MatchExactly):
+            self.list.addItem(os.path.abspath(folder))
+
+    def remove_selected(self):
+        for it in self.list.selectedItems():
+            self.list.takeItem(self.list.row(it))
+
+    def folders(self):
+        return [self.list.item(i).text() for i in range(self.list.count())]
+
+
 class FixPathsDialog(QDialog):
     """Re-point missing videos by swapping the folder they were stored under. One row per
     old folder, so videos that lived in different folders can go to different new folders."""
@@ -4000,6 +4115,7 @@ class MainWindow(QMainWindow):
         self.dvr_check_act.triggered.connect(lambda: self.check_dvr_folder(manual=True))
         self.dvr_again_act = dvr_menu.addAction("Offer &skipped videos again")
         self.dvr_again_act.triggered.connect(self.offer_skipped_again)
+        dvr_menu.addAction("&Excluded folders…").triggered.connect(self.edit_excluded_folders)
         self.dvr_stop_act = dvr_menu.addAction("S&top watching")
         self.dvr_stop_act.triggered.connect(self.stop_watching)
         dvr_menu.aboutToShow.connect(self.refresh_dvr_menu)
@@ -4586,7 +4702,11 @@ class MainWindow(QMainWindow):
         default_track = shown_track if isinstance(shown_track, str) and shown_track not in (NEW_TRACK, RENAME_TRACK, DELETE_TRACK) else ""
         if watch:
             intro += " Videos you leave unticked are remembered and not offered again."
-        dlg = AddVideosDialog(entries, self.lib.tracks(), default_track, self, title, intro, suggest, skip_ok=watch)
+        if watch:
+            intro += " Right-click a video to never check its folder again."
+        dlg = AddVideosDialog(entries, self.lib.tracks(), default_track, self, title, intro, suggest, skip_ok=watch,
+                              exclude_cb=self.exclude_dvr_folder if watch else None,
+                              exclude_root=root if watch else None)
         if dlg.exec():
             if watch:                                        # whatever was offered, added or unticked, is not offered again
                 self.lib.mark_watch_seen([seen_key(e[0]) for e in entries if not e[3]])
@@ -5821,6 +5941,17 @@ class MainWindow(QMainWindow):
         self.refresh_dvr_button()
         self.statusBar().showMessage("No longer watching a DVR folder", 4000)
 
+    def exclude_dvr_folder(self, folder):
+        self.lib.exclude_watch_folder(folder)
+        self.statusBar().showMessage(f"The DVR check will skip {folder}. Change it under Library → DVR folder → "
+                                     "Excluded folders…", 8000)
+
+    def edit_excluded_folders(self):
+        start = str(self.settings.value("watch_folder", "") or Path.home())
+        dlg = ExcludedFoldersDialog(self.lib.watch_excluded(), start, self)
+        if dlg.exec():
+            self.lib.set_watch_excluded(dlg.folders())
+
     def offer_skipped_again(self):
         self.lib.clear_watch_seen()
         self.check_dvr_folder(manual=True)
@@ -5840,7 +5971,7 @@ class MainWindow(QMainWindow):
             return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            found = [p for p in root.rglob("*") if p.suffix.lower() in VIDEO_EXTS and p.is_file()]
+            found = scan_videos(root, self.lib.watch_excluded())
             known_paths = {str(Path(p).resolve()) for _, p, _ in self.lib.videos()}
             known_ids = {i for i in (file_identity(p) for _, p, _ in self.lib.videos()) if i}
             seen = self.lib.watch_seen()
