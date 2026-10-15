@@ -21,8 +21,8 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, QTimer
 from PyQt6.QtCore import QDate, QEvent, QKeyCombination, QProcess, QProcessEnvironment, QSize, QRectF, QSettings, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
-from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PyQt6.QtGui import QImage, QAction, QActionGroup, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
+from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QFrame, QDateEdit, QDoubleSpinBox, QFormLayout, QComboBox, QDialog, QFileDialog, QGridLayout, QHBoxLayout,
@@ -2690,9 +2690,75 @@ class StatsDialog(QDialog):
 # ----------------------------------------------------------------------------
 # Main window
 # ----------------------------------------------------------------------------
-class VideoView(QVideoWidget):
-    """Video widget that reports mouse-wheel turns (used to step through frames)."""
+class VideoView(QWidget):
+    """The video picture. It paints the frames itself instead of using a QVideoWidget, because a video widget is drawn
+    by the system on top of anything placed over it: this way the lap number and running lap time can be drawn
+    straight onto the picture. It also reports mouse-wheel turns (used to step through frames)."""
     wheel = pyqtSignal(int, bool)     # notches (+ = forward), shift held
+
+    def __init__(self):
+        super().__init__()
+        self._sink = QVideoSink(self)                        # the player is given this (QMediaPlayer.setVideoSink)
+        self._sink.videoFrameChanged.connect(self.on_frame)
+        self._image = QImage()
+        self._active = True                                  # False while the player has no video: late frames are ignored
+        self._overlay = None                                 # (text, bad) while the lap timer is shown
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def videoSink(self):
+        return self._sink
+
+    def set_active(self, on):
+        self._active = on
+        if not on:
+            self.clear()
+
+    def on_frame(self, frame):
+        if self._active and frame.isValid():
+            self._image = frame.toImage()                    # copied now: the frame's data is only ours for this call
+            self.update()
+
+    def clear(self):
+        self._image = QImage()
+        self.update()
+
+    def set_overlay(self, text, bad=False):
+        new = (text, bool(bad)) if text else None
+        if new != self._overlay:
+            self._overlay = new
+            self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.fillRect(self.rect(), Qt.GlobalColor.black)
+        im = self._image
+        pic = QRectF(self.rect())                            # where the picture sits (the whole widget until a frame arrives)
+        if not im.isNull():
+            scale = min(self.width() / im.width(), self.height() / im.height())
+            w, h = im.width() * scale, im.height() * scale
+            pic = QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            p.drawImage(pic, im)
+        if self._overlay:
+            text, bad = self._overlay
+            font = QFont(self.font())
+            font.setBold(True)
+            font.setPixelSize(max(13, int(pic.height() * 0.05)))     # sized to the picture, drawn on the picture
+            p.setFont(font)
+            fm = QFontMetrics(font)
+            lines = text.split("\n")
+            pad = font.pixelSize() * 0.35
+            box = QRectF(pic.left() + font.pixelSize() * 0.5, pic.top() + font.pixelSize() * 0.5,
+                         max(fm.horizontalAdvance(l) for l in lines) + 2 * pad, fm.height() * len(lines) + pad)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(0, 0, 0, 150))
+            p.drawRoundedRect(box, 4, 4)
+            p.setPen(QColor("#ff9800") if bad else QColor("white"))
+            for i, line in enumerate(lines):
+                p.drawText(QRectF(box.left(), box.top() + pad / 2 + i * fm.height(), box.width(), fm.height()),
+                           Qt.AlignmentFlag.AlignCenter, line)
+        p.end()
 
     def wheelEvent(self, e):
         notches = e.angleDelta().y() // 120
@@ -3609,13 +3675,9 @@ class MainWindow(QMainWindow):
         self.player.setAudioOutput(self.audio)
         self.video_widget = VideoView()
         self.video_widget.setMinimumSize(480, 270)
-        self.player.setVideoOutput(self.video_widget)
+        self.player.setVideoSink(self.video_widget.videoSink())
+        self.player.sourceChanged.connect(lambda src: self.video_widget.set_active(not src.isEmpty()))
         self.video_widget.wheel.connect(self.on_wheel)
-        self.lap_overlay = QLabel(self.video_widget)         # lap number and running lap time, drawn over the picture
-        self.lap_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.lap_overlay.hide()
-        self._overlay_style = None
-        self.video_widget.installEventFilter(self)           # to re-place the overlay when the video is resized
         self.video_widget.videoSink().videoFrameChanged.connect(self.on_frame)
         self.player.mediaStatusChanged.connect(self.on_media_status)
         self.player.durationChanged.connect(lambda d: self.slider.setRange(0, d))
@@ -3667,9 +3729,9 @@ class MainWindow(QMainWindow):
         add_files.clicked.connect(self.add_files)
         add_folder = QPushButton("Add folder…")
         add_folder.clicked.connect(self.add_folder)
-        remove = QPushButton("Remove")
-        remove.setToolTip("Remove from library (the video file is not touched)")
-        remove.clicked.connect(self.remove_selected)
+        remove = QPushButton("Remove videos…")
+        remove.setToolTip("Take the selected video(s) out of the library, with their marks (the video files are not touched)")
+        remove.clicked.connect(lambda: self.remove_selected())      # (clicked passes a bool: not the vids argument)
         stats_btn = QPushButton("Library stats")
         stats_btn.clicked.connect(lambda: StatsDialog(self.lib, self, self.track_filter.currentData()).exec())
         details = QPushButton("Track / date / notes…")
@@ -4007,46 +4069,21 @@ class MainWindow(QMainWindow):
         self._lap_key = None
         self.update_lap_indicator()
 
-    def place_overlay(self):
-        """Top-left corner of the video, text size following the video's height."""
-        h = self.video_widget.height()
-        size = max(13, int(h * 0.05))
-        f = self.lap_overlay.font()
-        f.setPixelSize(size)
-        f.setBold(True)
-        self.lap_overlay.setFont(f)
-        self.lap_overlay.adjustSize()
-        self.lap_overlay.move(max(6, int(size * 0.5)), max(6, int(size * 0.5)))
-        self.lap_overlay.raise_()
-
     def update_overlay(self, row, bad):
-        """Lap number and the time into the lap (from the frame on screen), over the video."""
-        ov = self.lap_overlay
+        """Lap number and the time into the lap (from the frame on screen), drawn over the video."""
+        view = self.video_widget
         if self.vid is None or not self.mark_rows or not getattr(self, "overlay_act", None) or not self.overlay_act.isChecked():
-            ov.hide()
+            view.set_overlay(None)
             return
         here = self.cursor_ms
         if row == 0:                                         # before the start gate
-            ov.hide()
+            view.set_overlay(None)
             return
         if row is None:                                      # after the last gate: the lap being flown
-            n_done = len(self.mark_rows) - 1
-            head, since = f"LAP {n_done + 1}", here - self.mark_rows[-1][1]
+            head, since = f"LAP {len(self.mark_rows)}", here - self.mark_rows[-1][1]
         else:
-            head = f"LAP {row} / {len(self.mark_rows) - 1}"
-            since = here - self.mark_rows[row - 1][1]
-        text = f"{head}\n{fmt_overlay(max(0, since))}"
-        style = "bad" if bad else "ok"
-        if style != self._overlay_style:
-            ov.setStyleSheet("background: rgba(0,0,0,150); padding: 3px 9px; border-radius: 4px; "
-                             f"color: {'#ff9800' if bad else 'white'};")
-            self._overlay_style = style
-        if ov.text() != text:
-            ov.setText(text)
-            ov.adjustSize()
-        if not ov.isVisible():
-            self.place_overlay()
-            ov.show()
+            head, since = f"LAP {row} / {len(self.mark_rows) - 1}", here - self.mark_rows[row - 1][1]
+        view.set_overlay(f"{head}\n{fmt_overlay(max(0, since))}", bad)
 
     def set_library_visible(self, on):
         self.settings.setValue("show_library", on)
@@ -5165,8 +5202,6 @@ class MainWindow(QMainWindow):
     def eventFilter(self, obj, ev):
         """Hold-to-play keys (default Shift+Left/Right): play at 2x while held, stop on release."""
         t = ev.type()
-        if obj is self.video_widget and t == QEvent.Type.Resize:
-            self.place_overlay()
         if t == QEvent.Type.KeyPress:
             k = ev.key()
             if self.hold_key is not None and k == self.hold_key:

@@ -177,7 +177,7 @@ different path, a symlink, or a copy with the same name, size and date) is refus
 listing what was skipped, because the same laps would otherwise be counted twice in your stats. If
 duplicates are already in the library they show as **⚠ duplicate** (orange) in the list, and the
 Library stats window shows a warning for the track/view that contains them. Remove the extra entry
-with *Remove*; the video file is not touched.
+with *Remove videos…*; the video file is not touched.
 
 If a video is moved or renamed it shows in red; double-click it and pick the new location. Your
 marks stay attached.
@@ -227,7 +227,7 @@ LAPS      FASTEST     FASTEST 3
 - Hover a card for its full path (and its note).
 - Above the list: a **track** filter, a **Sort** box (date, fastest lap or fastest run), a **Show** box (all videos,
   not marked yet, or marked only) and a **search box** that matches file names, tracks and notes.
-- The **Remove** button takes the selected video out of the library, with its marks. The video file is not touched.
+- The **Remove videos…** button (or *Remove from library* in the right-click menu) takes the selected videos out of the library, with their marks. The video file is not touched.
 
 **Right-click menu.** Right-click a video (or a selection; right-clicking an unselected video acts on just that one):
 
@@ -280,7 +280,7 @@ are identical whichever version you used, and always use the time of the frame *
 copies:
 
 - The copies live in a cache folder (see *Where your data lives*). **Clear smooth copies…** deletes them all to free
-  space; they can be rebuilt. *Remove* also deletes that video's copy, unless another entry for the same file still
+  space; they can be rebuilt. *Remove videos…* also deletes that video's copy, unless another entry for the same file still
   uses it.
 - A copy is found again by the video's **file name, size and modified date**, not its folder, so moving or
   reorganising your videos (or using *Fix paths…*) does not trigger a rebuild. It is rebuilt only if the file itself
@@ -354,7 +354,9 @@ dialogs follow it.
 - Each row is a gate pass. The lap time on a row is the time since the previous mark.
 - **Lap timer on the video:** the lap number and the time into that lap are drawn in the top-left of the picture, like in
   the exported video (orange for a flagged lap, and the lap in progress after the last gate). Turn it off with
-  **View → Show lap timer on the video**.
+  **View → Show lap timer on the video**. To draw it, the app paints the video picture itself instead of handing it to the
+  system's video widget, which costs a little more processor time during playback (about 80% of one core for a
+  90 fps smooth copy in my Linux test).
 - **Which lap am I in?** Next to the time under the video, a label shows the lap at the playhead (*Lap 3 / 13 ·
   0:09.300*, orange with *BAD* when it is flagged; *Lap 14 in progress* after the last gate, *Before the start gate*
   before the first). That lap's row in the table is framed in teal and scrolls into view. It is the lap the **X** key
