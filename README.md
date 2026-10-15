@@ -358,7 +358,9 @@ dialogs follow it.
 - **Lap chart** (right panel): bar chart of one video's laps. Green = fastest, grey = bad, dashed blue
   box = fastest N consecutive. Hover a bar for details.
 - **Library stats** (left panel): pick a track (or *All tracks*) to see its fastest lap and fastest N,
-  a per-video table, and a **By track** table comparing every track.
+  a per-video table, and a **By track** table comparing every track. Click any column heading in either table to
+  sort by it, and click again to reverse. Times sort by value, and rows with no value (--) always stay at the bottom.
+  They open in the usual order: oldest session first, and tracks A to Z.
 - **Progress chart** (in Library stats): one point per video in session-date order, showing fastest lap
   and best-N average per lap for the selected track, to see improvement over time.
 - **Export CSV**: from the right panel (current video) or Library stats (selected track). Columns:

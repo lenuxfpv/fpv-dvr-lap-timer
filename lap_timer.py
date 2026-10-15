@@ -2200,6 +2200,23 @@ class DetailsDialog(QDialog):
 # ----------------------------------------------------------------------------
 # Stats dialog
 # ----------------------------------------------------------------------------
+class SortItem(QTableWidgetItem):
+    """A table cell that sorts by `key` instead of its text (so 1:02.345 follows 25.737 and 10 follows 9).
+    A key of None means 'no value' (shown as --): those rows always sort last, whichever way the column goes."""
+    def __init__(self, text, key=None):
+        super().__init__(text)
+        self.key = key
+
+    def __lt__(self, other):
+        a, b = self.key, getattr(other, "key", None)
+        if a is None or b is None:
+            if a is None and b is None:
+                return False
+            desc = self.tableWidget().horizontalHeader().sortIndicatorOrder() == Qt.SortOrder.DescendingOrder
+            return desc if a is None else not desc
+        return a < b
+
+
 class StatsDialog(QDialog):
     def __init__(self, lib, parent=None, track=None):
         super().__init__(parent)
@@ -2239,6 +2256,10 @@ class StatsDialog(QDialog):
         for t in (self.table, self.by_track):
             t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
             t.verticalHeader().setVisible(False)
+            t.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)   # start in the natural order
+            t.horizontalHeader().setSortIndicatorShown(True)
+            t.setSortingEnabled(True)
+            t.setToolTip("Click a column heading to sort by it; click again to reverse.")
 
         prog = QPushButton("📈 Progress chart (this track)")
         prog.clicked.connect(lambda: ProgressDialog(lib, self.combo.currentData(), self).exec())
@@ -2303,6 +2324,11 @@ class StatsDialog(QDialog):
         self.vid_btn.setText(f"🎬 Export fastest {n_head} video (this track)…" if n_head
                              else "🎬 Export fastest run video (pick a track)…")
 
+        # fill with sorting off (rows would jump around mid-fill), then put back the column the user had chosen
+        views = [(t, t.horizontalHeader().sortIndicatorSection(), t.horizontalHeader().sortIndicatorOrder())
+                 for t in (self.table, self.by_track)]
+        for t, _, _ in views:
+            t.setSortingEnabled(False)
         self.table.setRowCount(len(rows))
         for r, (d, name, t, manual, laps) in enumerate(rows):
             n = run_for(rmap, t)
@@ -2312,8 +2338,11 @@ class StatsDialog(QDialog):
                     fmt(s["best"][0]) if s["best"] else "--", str(n),
                     fmt(s["bestn"][0]) if s["bestn"] else "--",
                     fmt(s["avg"]) if s["avg"] else "--"]
-            for c, v in enumerate(vals):
-                self.table.setItem(r, c, QTableWidgetItem(v))
+            keys = [name.lower(), t.lower() if t else None, (d.toordinal(), name.lower()) if d else None,
+                    (s["good"], s["total"]), s["best"][0] if s["best"] else None, n,
+                    s["bestn"][0] if s["bestn"] else None, s["avg"] or None]
+            for c, (v, k) in enumerate(zip(vals, keys)):
+                self.table.setItem(r, c, SortItem(v, k))
 
         self.by_track.setRowCount(len(groups))
         for r, t in enumerate(sorted(groups, key=lambda t: (t == "", t.lower()))):
@@ -2323,8 +2352,14 @@ class StatsDialog(QDialog):
                     fmt(a["best"][0]) if a["best"] else "--", str(n),
                     fmt(a["bestn"][0]) if a["bestn"] else "--",
                     fmt(a["avg"]) if a["avg"] else "--"]
-            for c, v in enumerate(vals):
-                self.by_track.setItem(r, c, QTableWidgetItem(v))
+            keys = [t.lower() if t else None, len(groups[t]), (a["good"], a["total"]),
+                    a["best"][0] if a["best"] else None, n, a["bestn"][0] if a["bestn"] else None, a["avg"] or None]
+            for c, (v, k) in enumerate(zip(vals, keys)):
+                self.by_track.setItem(r, c, SortItem(v, k))
+        for t, sec, order in views:
+            t.setSortingEnabled(True)
+            if sec >= 0:
+                t.sortByColumn(sec, order)
 
     def export_video(self):
         ids = self.lib.video_ids(self.combo.currentData())
