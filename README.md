@@ -536,9 +536,9 @@ New to it? See the step-by-step guide: **[How to export your fastest laps](docs/
 
   ![A frame from an exported video: the lap timer and finished laps top left, the track and total top right, and the gold fastest-laps banner along the bottom](docs/export-example.jpg)
 
-  Or watch a full exported video on YouTube: [example export](https://youtu.be/v1-ylStcwRc).
+  Or watch a full exported video on YouTube: [example export](https://youtu.be/6bc5HDZFAgk).
 
-  [![Watch the example export on YouTube](https://img.youtube.com/vi/v1-ylStcwRc/hqdefault.jpg)](https://youtu.be/v1-ylStcwRc)
+  [![Watch the example export on YouTube](https://img.youtube.com/vi/6bc5HDZFAgk/hqdefault.jpg)](https://youtu.be/6bc5HDZFAgk)
 - **Requirements:** the export needs ffmpeg with libx264 and the `drawtext` filter (built with freetype; every normal
   full build has it), and a bold font file (see *What it needs*). The app checks all of this before exporting and
   tells you in plain words what to fix. The source video must be reachable (a network share that is offline shows
