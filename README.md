@@ -11,7 +11,8 @@ RaceGOW. The app never modifies the DVR video files, and it can export a video o
 submit as my RaceGOW entry.
 
 **Quick start:** install, add a video, press **Z** on each pass through the start/finish gate, then export your
-fastest laps. See *Workflow* for the steps.
+fastest laps. See *Workflow* for the steps, and [How to export your fastest laps](docs/EXPORT.md) for every
+export option.
 
 ## What it is
 
@@ -32,7 +33,8 @@ placed on a frame you can see, the times are accurate to the frame and easy to d
   video and across a whole track, with a lap chart and a progress chart to see improvement over time. In the open
   video the fastest lap is highlighted in gold and the fastest run in blue, in the gate list and on the seek bar.
 - **Export a shareable video.** Cut your fastest run from the original footage with a lap timer drawn on it,
-  optional start and end pictures (your pilot handle, say), your own audio or none, and padding either side.
+  optional start and end pictures (your pilot handle, say), your own intro and outro videos, your own audio or
+  none, and padding either side. [Export guide](docs/EXPORT.md).
 - **Export your data.** Lap times to CSV, and the whole library to a single file you can back up, move to another
   computer or merge into another library.
 
