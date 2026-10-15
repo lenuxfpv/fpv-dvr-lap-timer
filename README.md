@@ -74,7 +74,7 @@ The one thing worth adding yourself is **ffmpeg**; see *What it needs* just belo
   `ffmpeg` and the Windows `winget install Gyan.FFmpeg` build include it. Fedora's default `ffmpeg-free` does not:
   enable RPM Fusion and run `sudo dnf swap ffmpeg-free ffmpeg --allowerasing`.
 - **A bold font file** for the video export's timer, normally already installed (DejaVu Sans or Liberation on Linux,
-  Arial on Windows).
+  Arial on Windows, Arial or Helvetica on macOS).
 
 The install scripts check all of this and tell you how to fix anything missing.
 
@@ -156,16 +156,16 @@ the cached smooth copies to free disk space.
 ## Where your data lives
 
 Everything is stored in one SQLite database, `library.db`: Linux `~/.local/share/fpv-dvr-lap-timer/`, Windows
-`%APPDATA%\fpv-dvr-lap-timer\`. Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds
+`%APPDATA%\fpv-dvr-lap-timer\`, macOS `~/Library/Application Support/fpv-dvr-lap-timer/`. Set the environment variable `FPV_LAP_TIMER_DB` to use a different file. It holds
 each video's path, gate marks, bad-lap flags, track name, session date and notes, plus the track you gave each
 folder's videos and the DVR check's list of files it has already offered. Back up that one file to keep your
 history.
 
 - **Smooth-scrub copies** live in a cache folder, never next to your videos: Linux `~/.cache/fpv-dvr-lap-timer/smooth`,
-  Windows `%LOCALAPPDATA%\fpv-dvr-lap-timer\smooth`.
+  Windows `%LOCALAPPDATA%\fpv-dvr-lap-timer\smooth`, macOS `~/Library/Caches/fpv-dvr-lap-timer/smooth`.
 - **Preferences** (theme, keyboard shortcuts, compact layout, the DVR folder, the *Auto-build* / *Build when adding*
   checkboxes, your export options) are stored
-  separately by Qt (Linux `~/.config/fpv-dvr-lap-timer/app.conf`, Windows registry) and are not part of the library
+  separately by Qt (Linux `~/.config/fpv-dvr-lap-timer/app.conf`, Windows registry, macOS a preferences file in `~/Library/Preferences`) and are not part of the library
   file.
 - **Help → About** shows the library folder and the smooth-copies folder as links that open them in your file
   manager.
@@ -355,8 +355,7 @@ dialogs follow it.
 - **Lap timer on the video:** the lap number and the time into that lap are drawn in the top-left of the picture, like in
   the exported video (orange for a flagged lap, and the lap in progress after the last gate). Turn it off with
   **View → Show lap timer on the video**. To draw it, the app paints the video picture itself instead of handing it to the
-  system's video widget, which costs a little more processor time during playback (about 80% of one core for a
-  90 fps smooth copy in my Linux test).
+  system's video widget, which costs a little more processor time during playback.
 - **Which lap am I in?** Next to the time under the video, a label shows the lap at the playhead (*Lap 3 / 13 ·
   0:09.300*, orange with *BAD* when it is flagged; *Lap 14 in progress* after the last gate, *Before the start gate*
   before the first). That lap's row in the table is framed in teal and scrolls into view. It is the lap the **X** key
