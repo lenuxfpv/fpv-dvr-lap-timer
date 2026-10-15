@@ -204,6 +204,14 @@ def under_folder(path, folder):
     return p == f or p.startswith(f.rstrip(os.sep) + os.sep)
 
 
+def excluded_rel(folder, root):
+    """A folder below the DVR folder `root` as the "a/b" path stored in the library, or None if it isn't below it
+    (or is the DVR folder itself)."""
+    if not root or _folder_norm(folder) == _folder_norm(root) or not under_folder(folder, root):
+        return None
+    return Path(os.path.abspath(str(folder))).relative_to(os.path.abspath(str(root))).as_posix()
+
+
 def scan_videos(root, excluded=()):
     """Every video file below `root`, not looking inside the `excluded` folders (nor anything below them)."""
     skip = {_folder_norm(f) for f in excluded}
@@ -361,7 +369,9 @@ class Library:
             CREATE TABLE IF NOT EXISTS extra_tracks (name TEXT PRIMARY KEY);
             -- files the DVR-folder check has already offered (added, skipped or exported by this app), by name|size|mtime
             CREATE TABLE IF NOT EXISTS watch_seen (path TEXT PRIMARY KEY);
-            -- folders the DVR-folder check never looks in (with everything below them)
+            -- folders the DVR-folder check never looks in (with everything below them), as a path below the DVR
+            -- folder with "/" separators, so the list means the same on Windows and Linux (an old full path is
+            -- converted the next time the DVR folder is known)
             CREATE TABLE IF NOT EXISTS watch_excluded (folder TEXT PRIMARY KEY);
             -- the track you last gave videos from a folder of this name (so the add list suggests it next time)
             CREATE TABLE IF NOT EXISTS folder_tracks (folder TEXT PRIMARY KEY, track TEXT NOT NULL);
@@ -415,12 +425,11 @@ class Library:
 
     def set_watch_excluded(self, folders):
         self.db.execute("DELETE FROM watch_excluded")
-        self.db.executemany("INSERT OR IGNORE INTO watch_excluded(folder) VALUES(?)",
-                            [(os.path.abspath(str(f)),) for f in folders])
+        self.db.executemany("INSERT OR IGNORE INTO watch_excluded(folder) VALUES(?)", [(str(f),) for f in folders])
         self.db.commit()
 
     def exclude_watch_folder(self, folder):
-        self.db.execute("INSERT OR IGNORE INTO watch_excluded(folder) VALUES(?)", (os.path.abspath(str(folder)),))
+        self.db.execute("INSERT OR IGNORE INTO watch_excluded(folder) VALUES(?)", (str(folder),))
         self.db.commit()
 
     def clear_watch_seen(self):
@@ -2362,15 +2371,16 @@ class AddVideosDialog(QDialog):
 class ExcludedFoldersDialog(QDialog):
     """The folders the DVR check never looks in (with everything below them), without touching your folders."""
 
-    def __init__(self, folders, start_dir, parent=None):
+    def __init__(self, folders, root, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Folders the DVR check skips")
         self.resize(640, 360)
-        self.start_dir = start_dir
+        self.root = root                            # the DVR folder; exclusions are kept as paths below it
         lay = QVBoxLayout(self)
         intro = QLabel("The DVR check never looks in these folders or anything inside them. Your folders are not "
                        "changed, and “Offer skipped videos again” does not bring these back. You can also add a "
-                       "folder by right-clicking a video in the list of new videos.")
+                       "folder by right-clicking a video in the list of new videos. Each is a path below your DVR folder, so "
+                       "the list also works on another computer that reaches the same folders by a different path.")
         intro.setWordWrap(True)
         lay.addWidget(intro)
         self.list = QListWidget()
@@ -2390,9 +2400,17 @@ class ExcludedFoldersDialog(QDialog):
         lay.addLayout(row)
 
     def add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Folder the DVR check should skip", self.start_dir)
-        if folder and not self.list.findItems(os.path.abspath(folder), Qt.MatchFlag.MatchExactly):
-            self.list.addItem(os.path.abspath(folder))
+        if self.root is None:
+            QMessageBox.information(self, "DVR folder", "Choose your DVR folder first (Library → DVR folder).")
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Folder the DVR check should skip", str(self.root))
+        if not folder:
+            return
+        rel = excluded_rel(folder, self.root)
+        if rel is None:
+            QMessageBox.information(self, "Folder skipped", f"Pick a folder inside your DVR folder:\n{self.root}")
+        elif not self.list.findItems(rel, Qt.MatchFlag.MatchExactly):
+            self.list.addItem(rel)
 
     def remove_selected(self):
         for it in self.list.selectedItems():
@@ -5941,14 +5959,37 @@ class MainWindow(QMainWindow):
         self.refresh_dvr_button()
         self.statusBar().showMessage("No longer watching a DVR folder", 4000)
 
+    def dvr_root(self):
+        folder = str(self.settings.value("watch_folder", "") or "")
+        return Path(folder) if folder else None
+
+    def excluded_entries(self):
+        """The saved exclusions; a full path saved by an older version is turned into a path below the DVR folder
+        once that folder is known (one below another folder, or from the other OS, is kept as it is)."""
+        root, entries = self.dvr_root(), self.lib.watch_excluded()
+        if root:
+            fixed = [excluded_rel(e, root) or e if os.path.isabs(e) else e for e in entries]
+            if fixed != entries:
+                self.lib.set_watch_excluded(fixed)
+                entries = self.lib.watch_excluded()
+        return entries
+
+    def excluded_folders(self, root):
+        """The exclusions as real folders on this machine, for the scan."""
+        return [e if os.path.isabs(e) else str(Path(root) / e) for e in self.excluded_entries()
+                if os.path.isabs(e) or not _is_windows_style(e)]       # a full Windows path means nothing on Linux
+
     def exclude_dvr_folder(self, folder):
-        self.lib.exclude_watch_folder(folder)
+        rel = excluded_rel(folder, self.dvr_root())
+        if rel is None:
+            return
+        self.lib.exclude_watch_folder(rel)
         self.statusBar().showMessage(f"The DVR check will skip {folder}. Change it under Library → DVR folder → "
                                      "Excluded folders…", 8000)
 
     def edit_excluded_folders(self):
         start = str(self.settings.value("watch_folder", "") or Path.home())
-        dlg = ExcludedFoldersDialog(self.lib.watch_excluded(), start, self)
+        dlg = ExcludedFoldersDialog(self.excluded_entries(), self.dvr_root(), self)
         if dlg.exec():
             self.lib.set_watch_excluded(dlg.folders())
 
@@ -5971,7 +6012,7 @@ class MainWindow(QMainWindow):
             return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            found = scan_videos(root, self.lib.watch_excluded())
+            found = scan_videos(root, self.excluded_folders(root))
             known_paths = {str(Path(p).resolve()) for _, p, _ in self.lib.videos()}
             known_ids = {i for i in (file_identity(p) for _, p, _ in self.lib.videos()) if i}
             seen = self.lib.watch_seen()

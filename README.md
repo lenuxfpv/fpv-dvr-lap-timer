@@ -407,8 +407,9 @@ Choose the folder your goggles' DVR files end up in once, and the app offers the
   and everything inside it is left out of every later check, and its videos vanish from the list straight away. Your
   folders on disk are not changed, and **Offer skipped videos again** does not bring them back. See or undo the list
   under **Library → DVR folder → Excluded folders…**, where you can also add a folder yourself. It applies to the
-  DVR check only; *Add folder…* and drag and drop still list everything. The list is saved in the library as full
-  paths, so it needs redoing if the DVR folder moves to a different path.
+  DVR check only; *Add folder…* and drag and drop still list everything. Each entry is saved in the library as a
+  path below your DVR folder, so after you move the library to another computer (Windows to Linux, say) the list
+  still works once you have chosen the DVR folder there, provided the folders underneath have the same names.
 - **Exported videos are skipped.** Videos made by the export feature are left out of the DVR check, *Add folder…* and
   dropped folders. Exports are recognised by the tag the app now writes into each exported file (so a renamed export
   is still caught) and by the names it suggests (`<track> fastest 3 27.900.mp4`, `<track> laps 3-5 1:02.345.mp4`),
