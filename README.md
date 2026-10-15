@@ -303,6 +303,7 @@ These are the defaults; every one can be changed (see *Changing the keys* below)
 | PgUp / PgDn | Previous / next gate mark |
 | `[` / `]` | Slower / faster playback (0.1x - 8x) |
 | X | Flag the current lap as bad: during a lap you are still marking, it is flagged when you press **Z** at its end gate; inside a lap that already has both gates, it toggles that lap |
+| Ctrl + Z / Ctrl + Y | Undo / redo the last mark change (adding, moving or deleting a gate, or a bad-lap flag); also in the **Edit** menu, which names what it would undo |
 | Delete | Delete the selected mark (when the table has focus) |
 
 Audio is muted by default (checkbox under the video).
@@ -317,12 +318,26 @@ blocked: the clashing rows turn orange and *Save* stays disabled until you fix i
 remembered, and the **MARK START/FINISH GATE** button label shows your key for that action. (The line under the
 video just points back to this dialog.)
 
+**Small screens.** **View → Compact controls** shortens the buttons (Frame/Gate buttons become arrows, *MARK GATE*,
+*Build copy*), drops the hint line and narrows the right-hand panel, so the window can be about 1040 px wide instead
+of about 1420 px (the sizes are measured on Linux and vary a little with your font and display scaling). It
+switches on by itself the first time if your screen is smaller than 1400 × 800, and the choice is remembered.
+**View → Show library panel** hides the video list on the left once you have opened a video, which brings the
+window down to about 780 px wide. The window also never opens larger than your screen.
+
 **Theme.** **View → Theme** offers *Follow system*, *Light* and *Dark*. The choice is remembered, and charts and
 dialogs follow it.
 
 ### Marks and laps table
 
 - Each row is a gate pass. The lap time on a row is the time since the previous mark.
+- **Which lap am I in?** Next to the time under the video, a label shows the lap at the playhead (*Lap 3 / 13 ·
+  0:09.300*, orange with *BAD* when it is flagged; *Lap 14 in progress* after the last gate, *Before the start gate*
+  before the first). That lap's row in the table is framed in teal and scrolls into view. It is the lap the **X** key
+  and the **Bad lap** button act on.
+- **Undo:** **Ctrl+Z** (and **Ctrl+Y** to redo) steps back through the changes you made to the open video's marks:
+  gates added, moved or deleted, and bad-lap flags. The history is kept while the video stays open (up to 100
+  steps).
 - Click a row to jump the video to that mark.
 - Tick **Bad lap** to exclude that lap (the lap *ending* at that mark), or press **X** while the playhead is in
   the lap. While you are still marking, press **X** during the lap and then **Z** at its finish gate, and that lap

@@ -484,6 +484,13 @@ class Library:
         return self.db.execute(
             "SELECT id, time_ms, bad_lap FROM marks WHERE video_id=? ORDER BY time_ms", (vid,)).fetchall()
 
+    def set_marks(self, vid, rows):
+        """Replace every mark of a video with rows [(time_ms, bad)] (what undo / redo put back)."""
+        self.db.execute("DELETE FROM marks WHERE video_id=?", (vid,))
+        self.db.executemany("INSERT INTO marks(video_id, time_ms, bad_lap) VALUES(?,?,?)",
+                            [(vid, int(t), 1 if bad else 0) for t, bad in rows])
+        self.db.commit()
+
     def add_mark(self, vid, t):
         cur = self.db.execute("INSERT INTO marks(video_id, time_ms) VALUES(?,?)", (vid, int(t)))
         self.db.commit()
@@ -2536,6 +2543,8 @@ KEY_ACTIONS = [
     ("slower", "Slower playback", "["),
     ("faster", "Faster playback", "]"),
     ("bad_lap", "Mark / unmark the lap at the playhead as bad", "X"),
+    ("undo", "Undo the last mark change (add, move, delete, bad-lap flag)", "Ctrl+Z"),
+    ("redo", "Redo", "Ctrl+Y"),
     ("delete_mark", "Delete the selected mark (when the table has focus)", "Delete"),
 ]
 KEY_DEFAULTS = {kid: key for kid, _, key in KEY_ACTIONS}
@@ -2724,6 +2733,32 @@ class LibraryDelegate(QStyledItemDelegate):
         p.restore()
 
 
+class LapRowDelegate(QStyledItemDelegate):
+    """Draws a teal frame round the table row of the lap the playhead is in (`row`; None = no lap)."""
+    COLOR = "#00acc1"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.row = None
+
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        if index.row() != self.row:
+            return
+        pen = QPen(QColor(self.COLOR))
+        pen.setWidth(2)
+        painter.save()
+        painter.setPen(pen)
+        r = option.rect
+        painter.drawLine(r.left(), r.top() + 1, r.right(), r.top() + 1)
+        painter.drawLine(r.left(), r.bottom() - 1, r.right(), r.bottom() - 1)
+        if index.column() == 0:
+            painter.drawLine(r.left() + 1, r.top(), r.left() + 1, r.bottom())
+        if index.column() == index.model().columnCount() - 1:
+            painter.drawLine(r.right() - 1, r.top(), r.right() - 1, r.bottom())
+        painter.restore()
+
+
 class MainWindow(QMainWindow):
     COL_GATE, COL_TIME, COL_LAP, COL_BAD = range(4)
 
@@ -2740,6 +2775,9 @@ class MainWindow(QMainWindow):
         # navigation state
         self.cur_path = None
         self.frame_ms = None     # timestamp of the frame actually on screen
+        self.compact = False     # View > Compact controls: shorter buttons, no hint line (fits small screens)
+        self.undo_stack, self.redo_stack = [], []   # [(video id, what, [(time_ms, bad)] before it)]
+        self._lap_key = None     # what the lap indicator last showed, so it only redraws on a change
         self.pending_bad = None  # (video id, last gate time) while X has flagged the lap in progress as bad
         self.cursor_ms = 0.0     # where navigation is heading (may be ahead of the shown frame)
         self._last_seek = 0.0
@@ -2854,6 +2892,9 @@ class MainWindow(QMainWindow):
         self.slider = MarkSlider()
         self.slider.sliderMoved.connect(self.on_slider_moved)
         self.time_label = QLabel("0:00.000 / 0:00.000")
+        self.lap_label = QLabel()
+        self.lap_label.setToolTip("The lap the playhead is in: this is the lap the Bad lap key / button acts on, "
+                                  "and its row is framed in the table")
         self.play_btn = QPushButton("▶ Play")
         self.play_btn.clicked.connect(self.toggle_play)
         back = QPushButton("◀ Frame"); back.clicked.connect(lambda: self.step(-1))
@@ -2911,7 +2952,10 @@ class MainWindow(QMainWindow):
             self.proxy_btn.setToolTip("Needs ffmpeg installed")
 
         ctl = QHBoxLayout()
-        for w in (self.play_btn, back, fwd, prev_gate, next_gate, QLabel("Speed:"), self.speed, self.mute):
+        self.nav_btns = [back, fwd, prev_gate, next_gate]
+        back.setToolTip("Step one frame back"); fwd.setToolTip("Step one frame forward")
+        self.speed_label = QLabel("Speed:")
+        for w in (self.play_btn, back, fwd, prev_gate, next_gate, self.speed_label, self.speed, self.mute):
             ctl.addWidget(w)
         ctl.addStretch(1)
         ctl.addWidget(self.mark_btn)
@@ -2931,7 +2975,11 @@ class MainWindow(QMainWindow):
         cl.addWidget(self.title_label)
         cl.addWidget(self.video_widget, 1)
         cl.addWidget(self.slider)
-        cl.addWidget(self.time_label)
+        timerow = QHBoxLayout()
+        timerow.addWidget(self.time_label)
+        timerow.addStretch(1)
+        timerow.addWidget(self.lap_label)
+        cl.addLayout(timerow)
         cl.addLayout(jogrow)
         cl.addLayout(ctl)
         cl.addLayout(proxyrow)
@@ -2951,6 +2999,8 @@ class MainWindow(QMainWindow):
         for col in (0, 3):                      # Gate / Bad lap hug their content; the two time columns share the rest
             hh.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
+        self.lap_delegate = LapRowDelegate(self.table)
+        self.table.setItemDelegate(self.lap_delegate)
         self.table.cellClicked.connect(self.on_row_clicked)
         self.table.itemChanged.connect(self.on_item_changed)
         del_btn = QPushButton("Delete mark")
@@ -2978,6 +3028,7 @@ class MainWindow(QMainWindow):
         self.run_spin.setSuffix(" laps")
         self.run_spin.valueChanged.connect(self.on_run_length_changed)
         self.run_label = QLabel()
+        self.run_label.setWordWrap(True)                     # wraps instead of being cut off in the narrow compact panel
         self.run_reset = QPushButton("Use default")
         self.run_reset.clicked.connect(self.reset_track_run)
         self.run_btn = QPushButton()
@@ -3015,7 +3066,7 @@ class MainWindow(QMainWindow):
             "shuttle_fwd": lambda: self.key_shuttle(1),
             "prev_gate": lambda: self.jump_mark(-1), "next_gate": lambda: self.jump_mark(1),
             "slower": lambda: self.change_speed(-1), "faster": lambda: self.change_speed(1),
-            "bad_lap": self.toggle_bad_lap, "delete_mark": self.delete_key,
+            "bad_lap": self.toggle_bad_lap, "undo": self.undo, "redo": self.redo, "delete_mark": self.delete_key,
         }
         self.shortcuts = {}
         for kid, fn in handlers.items():
@@ -3039,9 +3090,32 @@ class MainWindow(QMainWindow):
         lib_menu.addAction("&Import library (replace)…").triggered.connect(self.import_library)
         lib_menu.addAction("&Merge library…").triggered.connect(self.merge_library)
 
+        # --- Edit > undo / redo of mark changes
+        edit_menu = self.menuBar().addMenu("&Edit")
+        self.undo_act = edit_menu.addAction("&Undo")
+        self.undo_act.triggered.connect(self.undo)
+        self.redo_act = edit_menu.addAction("&Redo")
+        self.redo_act.triggered.connect(self.redo)
+
         # --- View > Theme
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction("&Keyboard shortcuts…").triggered.connect(self.choose_keys)
+        self.library_act = QAction("Show &library panel", self, checkable=True)
+        self.library_act.setChecked(self.settings.value("show_library", True, type=bool))
+        self.library_act.toggled.connect(self.set_library_visible)
+        view_menu.addAction(self.library_act)
+        self.compact_act = QAction("&Compact controls", self, checkable=True)
+        self.compact_act.setToolTip("Shorter buttons and no hint line, so the window fits a small screen")
+        self.compact_act.setStatusTip("Shorter buttons and no hint line, so the window fits a small screen")
+        saved = self.settings.value("compact_layout")
+        screen = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+        self.compact_act.setChecked(saved in (True, "true") if saved is not None
+                                    else (screen.width() < 1400 or screen.height() < 800))   # first run: auto
+        self.compact_act.toggled.connect(self.set_compact)
+        view_menu.addAction(self.compact_act)
+        self.compact = self.compact_act.isChecked()
+        self.apply_compact()
+        self.split.widget(0).setVisible(self.library_act.isChecked())
         theme_menu = view_menu.addMenu("&Theme")
         group = QActionGroup(self)
         self.theme_actions = {}
@@ -3060,6 +3134,38 @@ class MainWindow(QMainWindow):
 
         self.apply_keys()
         self.refresh_library()
+        self.fit_to_screen()
+
+    def fit_to_screen(self):
+        """Never open bigger than the screen: a size saved on a larger monitor, or the 1400 x 800 default."""
+        avail = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+        self.resize(min(self.width(), avail.width()), min(self.height(), avail.height() - 40))
+        if self.x() + self.width() > avail.right() or self.y() + self.height() > avail.bottom():
+            self.move(max(avail.left(), min(self.x(), avail.right() - self.width())),
+                      max(avail.top(), min(self.y(), avail.bottom() - self.height() - 40)))
+
+    def set_library_visible(self, on):
+        self.settings.setValue("show_library", on)
+        self.split.widget(0).setVisible(on)
+
+    def set_compact(self, on):
+        self.settings.setValue("compact_layout", on)
+        self.compact = on
+        self.apply_compact()
+        self.apply_keys()
+        self.fit_to_screen()
+
+    def apply_compact(self):
+        """Compact controls trade a little text for width and height, so the window fits a small or scaled screen."""
+        c = self.compact
+        self.speed_label.setVisible(not c)
+        for b, text in zip(self.nav_btns, ("◀", "▶", "⏮", "⏭") if c else ("◀ Frame", "Frame ▶", "⏮ Gate", "Gate ⏭")):
+            b.setText(text)
+            b.setFixedWidth(36) if c else (b.setMinimumWidth(0), b.setMaximumWidth(16777215))
+        self.video_widget.setMinimumSize(*((320, 180) if c else (480, 270)))
+        self.use_proxy.setText("Smooth copy" if c else "Use smooth copy")
+        self.update_proxy_ui()
+        self.split.widget(2).setMinimumWidth(250 if c else 320)
 
     def show_about(self):
         def folder_line(label, folder):
@@ -3217,6 +3323,7 @@ class MainWindow(QMainWindow):
         self.player.setSource(QUrl())
         self.vid = None
         self.cur_path = None
+        self.clear_undo()
         self.load_marks()
         self.update_proxy_ui()
 
@@ -3579,6 +3686,7 @@ class MainWindow(QMainWindow):
             self.player.setSource(QUrl())
             self.vid = None
             self.cur_path = None
+            self.clear_undo()
             self.load_marks()
             self.update_proxy_ui()
         self.build_queue = [q for q in self.build_queue if q[0] not in gone]
@@ -3612,9 +3720,17 @@ class MainWindow(QMainWindow):
             sc_.setKey(QKeySequence(self.key_for(kid)))
         self.hold_bindings = {k: sp for kid, sp in (("hold_back", -2.0), ("hold_fwd", 2.0))
                               if (k := self.key_for(kid))}
-        self.mark_btn.setText(f"🏁 MARK START/FINISH GATE ({self.key_text('mark')})")
+        self.mark_btn.setText(f"🏁 MARK GATE ({self.key_text('mark')})" if self.compact
+                              else f"🏁 MARK START/FINISH GATE ({self.key_text('mark')})")
+        self.mark_btn.setStyleSheet("font-weight:bold; padding:%s; background:#2e7d32; color:white;"
+                                    % ("4px 10px" if self.compact else "8px 14px"))
         self.refresh_bad_btn()
-        self.hint.setText("Mouse wheel on the video = frame step (Shift ×10) · all keys: View → Keyboard shortcuts…")
+        self.refresh_undo_actions()
+        back, fwd = self.key_text("step_back"), self.key_text("step_fwd")
+        hold_back, hold_fwd = self.key_text("hold_back"), self.key_text("hold_fwd")
+        self.hint.setVisible(not self.compact)
+        self.hint.setText(f"Tip: {back} / {fwd} step one frame, hold {hold_back} / {hold_fwd} to play at 2x · mouse wheel "
+                          "also steps (Shift ×10) · all keys: View → Keyboard shortcuts…")
 
     def choose_keys(self):
         dlg = KeysDialog({kid: self.key_for(kid) for kid in KEY_DEFAULTS}, self)
@@ -3792,6 +3908,8 @@ class MainWindow(QMainWindow):
                 return
             self.lib.relocate(vid, new)
             path = str(Path(new).resolve())
+        if vid != self.vid:
+            self.clear_undo()
         self.vid, self.fps = vid, fps or 30.0
         self.title_label.setText(f"<b>{html.escape(vname(path))}</b>")
         self.cur_path = path
@@ -3850,7 +3968,7 @@ class MainWindow(QMainWindow):
             off = "🔒 Auto-build is off for this video. " if self.vid in self.lib.proxy_locked_ids() else ""
             self.proxy_label.setText(off + "Original video: scrubbing only jumps between keyframes, so the picture "
                                      "lags. Build a smooth copy for exact frames.")
-            self.proxy_btn.setText("⚡ Build smooth-scrub copy"); self.proxy_btn.show()
+            self.proxy_btn.setText("⚡ Build copy" if self.compact else "⚡ Build smooth-scrub copy"); self.proxy_btn.show()
 
     def on_proxy_button(self):
         if self.build and self.build["path"] == self.cur_path:
@@ -4080,6 +4198,7 @@ class MainWindow(QMainWindow):
         playing = self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
         shown = self.player.position() if (playing or self.frame_ms is None) else self.frame_ms
         self.time_label.setText(f"{fmt(shown)} / {fmt(self.player.duration())}")
+        self.update_lap_indicator()
 
     def frame_dur(self):
         return 1000.0 / (self.fps or 30.0)
@@ -4091,12 +4210,14 @@ class MainWindow(QMainWindow):
         self.cursor_ms = ms
         self._last_seek = time.monotonic()
         self.player.setPosition(int(ms + bias))
+        self.update_lap_indicator()
 
     def on_slider_moved(self, v):
         # coalesce a fast drag into at most one seek every ~25 ms (latest position wins)
         self.set_shuttle(0)
         self.cursor_ms = float(v)
         self._last_seek = time.monotonic()
+        self.update_lap_indicator()
         self._pending_seek = v
         if not self.seek_timer.isActive():
             self._flush_seek()
@@ -4143,10 +4264,96 @@ class MainWindow(QMainWindow):
         pending = (self.vid is not None and self.pending_bad is not None and bool(self.mark_rows)
                    and self.pending_bad == (self.vid, self.mark_rows[-1][1]))
         key = self.key_text("bad_lap")
-        self.bad_btn.setText(f"✖ Lap will be BAD ({key})" if pending else f"✖ Bad lap ({key})")
+        if self.compact:
+            self.bad_btn.setText(f"✖ BAD ({key})" if pending else f"✖ Bad lap ({key})")
+        else:
+            self.bad_btn.setText(f"✖ Lap will be BAD ({key})" if pending else f"✖ Bad lap ({key})")
+        pad = "2px 8px" if self.compact else "4px 14px"
         self.bad_btn.setStyleSheet(
-            "font-weight:bold; padding:4px 14px; background:#ef6c00; color:white; border:1px solid #ef6c00;" if pending
-            else "padding:4px 14px; color:#ef6c00; border:1px solid #ef6c00;")
+            f"font-weight:bold; padding:{pad}; background:#ef6c00; color:white; border:1px solid #ef6c00;" if pending
+            else f"padding:{pad}; color:#ef6c00; border:1px solid #ef6c00;")
+
+    # ---- undo / redo of mark edits ------------------------------------------
+    def mark_snapshot(self):
+        return [(m[1], m[2]) for m in self.lib.marks(self.vid)]
+
+    def begin_edit(self, what):
+        """Call before changing the open video's marks: remembers how they were so Ctrl+Z can put them back."""
+        if self.vid is None:
+            return
+        self.undo_stack.append((self.vid, what, self.mark_snapshot()))
+        del self.undo_stack[:-100]
+        self.redo_stack.clear()
+        self.refresh_undo_actions()
+
+    def clear_undo(self):
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self.refresh_undo_actions()
+
+    def undo(self):
+        self.step_history(self.undo_stack, self.redo_stack, "undo")
+
+    def redo(self):
+        self.step_history(self.redo_stack, self.undo_stack, "redo")
+
+    def step_history(self, src, dst, verb):
+        if self.vid is None or not src or src[-1][0] != self.vid:
+            self.statusBar().showMessage(f"Nothing to {verb}", 3000)
+            return
+        vid, what, snap = src.pop()
+        dst.append((vid, what, self.mark_snapshot()))
+        self.lib.set_marks(vid, snap)
+        self.pending_bad = None
+        self.load_marks()
+        self.refresh_library()
+        self.refresh_undo_actions()
+        self.statusBar().showMessage(f"{'Undid' if verb == 'undo' else 'Redid'}: {what}", 4000)
+
+    def refresh_undo_actions(self):
+        """Edit menu: name what Undo / Redo would do, with the key."""
+        if not hasattr(self, "undo_act"):
+            return
+        mine = lambda st: st[-1] if st and st[-1][0] == self.vid else None
+        for act, st, word, kid in ((self.undo_act, self.undo_stack, "Undo", "undo"),
+                                   (self.redo_act, self.redo_stack, "Redo", "redo")):
+            top = mine(st)
+            act.setEnabled(top is not None)
+            act.setText(f"&{word}{': ' + top[1] if top else ''}\t{self.key_text(kid)}")
+
+    def lap_at(self, ms):
+        """Table row of the gate that ends the lap containing `ms` (a frame on a gate starts the next lap).
+        0: before the first gate; None: after the last gate (the lap in progress, or no marks at all)."""
+        return next((i for i, m in enumerate(self.mark_rows) if m[1] > ms + 1), None)
+
+    def update_lap_indicator(self):
+        """Show which lap the playhead is in, next to the time, and frame its row in the table."""
+        if not hasattr(self, "lap_label"):
+            return
+        row, bad, text = None, False, ""
+        if self.vid is not None:
+            n = len(self.mark_rows) - 1                     # finished laps
+            i = self.lap_at(self.cursor_ms)
+            if not self.mark_rows:
+                text = "No gates marked yet"
+            elif i == 0:
+                text = "Before the start gate"
+            elif i is None:
+                bad = self.pending_bad == (self.vid, self.mark_rows[-1][1])
+                text = f"Lap {n + 1} in progress" + (" · will be BAD" if bad else "")
+            else:
+                row, bad = i, bool(self.mark_rows[i][2])
+                text = f"Lap {i} / {n} · {fmt(self.mark_rows[i][1] - self.mark_rows[i - 1][1])}" + (" · BAD" if bad else "")
+        if (text, bad, row) == self._lap_key:
+            return
+        moved = (self._lap_key or (None, None, None))[2] != row
+        self._lap_key = (text, bad, row)
+        self.lap_label.setText(text)
+        self.lap_label.setStyleSheet("font-weight:bold; color:#ef6c00;" if bad else "font-weight:bold;")
+        self.lap_delegate.row = row
+        self.table.viewport().update()
+        if moved and row is not None and self.table.item(row, 0) is not None:
+            self.table.scrollToItem(self.table.item(row, 0), QTableWidget.ScrollHint.EnsureVisible)
 
     def toggle_bad_lap(self):
         """Flag (or un-flag) the lap the playhead is in as bad. A frame on a gate belongs to the lap starting there."""
@@ -4154,16 +4361,18 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Open a video first", 3000)
             return
         here = self.cursor_ms
-        row = next((i for i, m in enumerate(self.mark_rows) if m[1] > here + 1), None)
+        row = self.lap_at(here)
         if row is None and self.mark_rows:                  # past the last mark: the lap in progress, not ended yet
             last = self.mark_rows[-1][1]
             if self.pending_bad == (self.vid, last):
                 self.pending_bad = None
                 self.refresh_bad_btn()
+                self.update_lap_indicator()
                 self.statusBar().showMessage(f"Lap {len(self.mark_rows)} is good again", 4000)
             else:
                 self.pending_bad = (self.vid, last)
                 self.refresh_bad_btn()
+                self.update_lap_indicator()
                 self.statusBar().showMessage(f"Lap {len(self.mark_rows)} will be marked bad when you mark the gate "
                                              f"that ends it (press {self.shortcuts['bad_lap'].key().toString()} "
                                              "again to cancel)", 8000)
@@ -4239,6 +4448,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("There is already a mark at this spot", 3000)
             return
         before = max((m[1] for m in self.mark_rows), default=None)      # the gate this lap started at
+        self.begin_edit("mark gate")
         mid = self.lib.add_mark(self.vid, t)
         flagged = self.pending_bad == (self.vid, before) and before is not None and t > before
         self.pending_bad = None
@@ -4292,6 +4502,8 @@ class MainWindow(QMainWindow):
         self.update_stats(laps)
         if hasattr(self, "bad_btn"):
             self.refresh_bad_btn()
+        self._lap_key = None
+        self.update_lap_indicator()
 
     def run_track(self):
         """The track the 'Fastest run' box applies to: the open video's, else the one picked in the library
@@ -4378,6 +4590,7 @@ class MainWindow(QMainWindow):
         if self._building or item.column() != self.COL_BAD or item.row() == 0:
             return
         mid = self.mark_rows[item.row()][0]
+        self.begin_edit("bad-lap flag")
         self.lib.set_bad(mid, item.checkState() == Qt.CheckState.Checked)
         row = item.row()
         self.load_marks()
@@ -4393,6 +4606,7 @@ class MainWindow(QMainWindow):
         if r is None:
             self.statusBar().showMessage("Click a gate in the table first, then delete it", 4000)
             return
+        self.begin_edit("delete gate")
         self.lib.delete_mark(self.mark_rows[r][0])
         self.load_marks()
         if self.mark_rows:                                   # keep a row selected so you can delete several in a row
@@ -4416,6 +4630,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 "The video is already at this mark - scrub to the new spot, then press Move mark here", 5000)
             return
+        self.begin_edit("move gate")
         self.lib.move_mark(mid, t)
         self.load_marks()
         new_row = next((i for i, m in enumerate(self.mark_rows) if m[0] == mid), None)
