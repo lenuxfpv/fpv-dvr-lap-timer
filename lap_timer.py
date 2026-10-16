@@ -3933,7 +3933,8 @@ class MainWindow(QMainWindow):
         self.mute.toggled.connect(self.audio.setMuted)
         self.mark_btn = QPushButton()
         self.mark_btn.setToolTip("Mark a gate pass on the frame shown. Change the key under View → Keyboard shortcuts…")
-        self.mark_btn.setStyleSheet("font-weight:bold; padding:8px 14px; background:#2e7d32; color:white;")
+        self.mark_btn.setStyleSheet("font-weight:bold; padding:4px 14px; background:#2e7d32; color:white; "
+                                    "border:1px solid #2e7d32;")
         self.mark_btn.clicked.connect(self.mark_gate)
         self.bad_btn = QPushButton()
         self.bad_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)          # so Space keeps playing / pausing
@@ -3990,7 +3991,7 @@ class MainWindow(QMainWindow):
         jogrow.addWidget(self.jog, 1)
         jogrow.addWidget(QLabel("▶▶"))
         jogrow.addWidget(self.jog_label)
-        proxyrow = QHBoxLayout()
+        self.proxyrow = proxyrow = QHBoxLayout()
         for w in (self.proxy_btn, self.use_proxy, self.auto_proxy):
             proxyrow.addWidget(w)
         proxyrow.addWidget(self.proxy_label, 1)
@@ -4914,12 +4915,13 @@ class MainWindow(QMainWindow):
                               if (k := self.key_for(kid))}
         self.mark_btn.setText(f"🏁 MARK GATE ({self.key_text('mark')})" if self.compact
                               else f"🏁 MARK START/FINISH GATE ({self.key_text('mark')})")
-        self.mark_btn.setStyleSheet("font-weight:bold; padding:%s; background:#2e7d32; color:white;"
-                                    % ("4px 10px" if self.compact else "8px 14px"))
+        self.mark_btn.setStyleSheet("font-weight:bold; padding:%s; background:#2e7d32; color:white; "
+                                    "border:1px solid #2e7d32;" % ("2px 8px" if self.compact else "4px 14px"))
         self.refresh_bad_btn()
         key = self.key_text("next_unmarked")
         self.next_unmarked_btn.setText(f"⏭ Next ({key})" if self.compact else f"⏭ Next unmarked ({key})")
         self.next_unmarked_btn.setStyleSheet("padding:%s;" % ("2px 8px" if self.compact else "4px 14px"))
+        QTimer.singleShot(0, self.match_mark_btn_width)       # sizes are only right once the new text and style are in
         self.refresh_undo_actions()
         back, fwd = self.key_text("step_back"), self.key_text("step_fwd")
         hold_back, hold_fwd = self.key_text("hold_back"), self.key_text("hold_fwd")
@@ -5499,6 +5501,22 @@ class MainWindow(QMainWindow):
         self.bad_btn.setStyleSheet(
             f"font-weight:bold; padding:{pad}; background:#ef6c00; color:white; border:1px solid #ef6c00;" if pending
             else f"padding:{pad}; color:#ef6c00; border:1px solid #ef6c00;")
+
+    def match_mark_btn_width(self):
+        """Make the green mark button as wide as the Bad lap + Next unmarked pair under it. Bad lap is given room
+        for its longest label (lit orange) so nothing jumps when it changes."""
+        widest = 0
+        for pending in (False, True):
+            self.bad_btn.setMinimumWidth(0)
+            self.bad_btn.setText(f"✖ Lap will be BAD (X)" if pending and not self.compact else "✖ BAD (X)" if pending
+                                 else "✖ Bad lap (X)")
+            self.bad_btn.setStyleSheet(f"{'font-weight:bold; ' if pending else ''}"
+                                       f"padding:{'2px 8px' if self.compact else '4px 14px'}; border:1px solid #ef6c00;")
+            widest = max(widest, self.bad_btn.sizeHint().width())
+        self.refresh_bad_btn()
+        self.bad_btn.setMinimumWidth(widest)
+        gap = self.proxyrow.spacing()
+        self.mark_btn.setMinimumWidth(widest + self.next_unmarked_btn.sizeHint().width() + (gap if gap >= 0 else 6))
 
     # ---- undo / redo of mark edits ------------------------------------------
     def mark_snapshot(self):
