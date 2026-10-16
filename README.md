@@ -376,6 +376,9 @@ dialogs follow it.
   (*Lap will be BAD*) while the lap in progress is flagged. Bad laps are greyed out,
   never counted as a fastest lap, and **break a run of laps**, so "fastest N consecutive" (3 by default) is always N
   good laps in a row. A run never spans two videos.
+- The **Next unmarked (A)** button, to the right of Bad lap, opens the next video in the library list that has no
+  marks yet (same as the **A** key; it follows the current filter and sort, skips videos whose file is missing,
+  and stops at the end of the list).
 - **Delete mark** removes a mark (the two neighbouring laps merge).
 - **Move mark here** moves the selected mark to the current video position, for fixing a mark that
   was placed slightly off. Click the mark's row (the video jumps to it), step or scrub to the correct

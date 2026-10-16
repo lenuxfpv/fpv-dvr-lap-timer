@@ -3941,6 +3941,11 @@ class MainWindow(QMainWindow):
                                 "press it during a lap and then mark the gate that ends it: that lap is saved as bad. "
                                 "Change the key under View → Keyboard shortcuts…")
         self.bad_btn.clicked.connect(self.toggle_bad_lap)
+        self.next_unmarked_btn = QPushButton()
+        self.next_unmarked_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.next_unmarked_btn.setToolTip("Open the next video in the library list that has no marks yet (stops at the end "
+                                          "of the list). Change the key under View → Keyboard shortcuts…")
+        self.next_unmarked_btn.clicked.connect(self.open_next_unmarked)
 
         # spring-loaded shuttle: drag right = forward (slow -> fast), left = backward, release = stop
         self.jog = QSlider(Qt.Orientation.Horizontal)
@@ -3989,7 +3994,8 @@ class MainWindow(QMainWindow):
         for w in (self.proxy_btn, self.use_proxy, self.auto_proxy):
             proxyrow.addWidget(w)
         proxyrow.addWidget(self.proxy_label, 1)
-        proxyrow.addWidget(self.bad_btn)                    # right-aligned, directly under the mark button
+        proxyrow.addWidget(self.bad_btn)
+        proxyrow.addWidget(self.next_unmarked_btn)          # right-aligned, under the mark button
         self.title_label = QLabel("Add a video to the library and double-click it to start.")
         center = QWidget()
         cl = QVBoxLayout(center)
@@ -4911,6 +4917,9 @@ class MainWindow(QMainWindow):
         self.mark_btn.setStyleSheet("font-weight:bold; padding:%s; background:#2e7d32; color:white;"
                                     % ("4px 10px" if self.compact else "8px 14px"))
         self.refresh_bad_btn()
+        key = self.key_text("next_unmarked")
+        self.next_unmarked_btn.setText(f"⏭ Next ({key})" if self.compact else f"⏭ Next unmarked ({key})")
+        self.next_unmarked_btn.setStyleSheet("padding:%s;" % ("2px 8px" if self.compact else "4px 14px"))
         self.refresh_undo_actions()
         back, fwd = self.key_text("step_back"), self.key_text("step_fwd")
         hold_back, hold_fwd = self.key_text("hold_back"), self.key_text("hold_fwd")
