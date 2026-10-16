@@ -3042,6 +3042,7 @@ KEY_ACTIONS = [
     ("undo", "Undo the last mark change (add, move, delete, bad-lap flag)", "Ctrl+Z"),
     ("redo", "Redo", "Ctrl+Y"),
     ("delete_mark", "Delete the selected mark (when the table has focus)", "Delete"),
+    ("next_unmarked", "Open the next video in the list that has no marks yet", "A"),
 ]
 KEY_DEFAULTS = {kid: key for kid, _, key in KEY_ACTIONS}
 KEY_LABELS = {kid: label for kid, label, _ in KEY_ACTIONS}
@@ -4102,6 +4103,7 @@ class MainWindow(QMainWindow):
             "slower": lambda: self.change_speed(-1), "faster": lambda: self.change_speed(1),
             "bad_lap": self.toggle_bad_lap,
             "nudge_back": lambda: self.nudge_mark(-1), "nudge_fwd": lambda: self.nudge_mark(1), "undo": self.undo, "redo": self.redo, "delete_mark": self.delete_key,
+            "next_unmarked": self.open_next_unmarked,
         }
         self.shortcuts = {}
         for kid, fn in handlers.items():
@@ -5856,6 +5858,19 @@ class MainWindow(QMainWindow):
             self.table.selectRow(min(r, len(self.mark_rows) - 1))
         self.refresh_library()
         self.statusBar().showMessage("Mark deleted", 3000)
+
+    def open_next_unmarked(self):
+        """Open the first video after the current one, in the order shown in the library, that has no marks.
+        Doesn't wrap round, and skips videos whose file is missing."""
+        marked = self.lib.marked_ids()
+        ids = [v for v, _ in self.listed]
+        start = ids.index(self.vid) + 1 if self.vid in ids else 0
+        fps_of = {v: f for v, _, f in self.lib.videos()}
+        for vid, path in self.listed[start:]:
+            if vid not in marked and os.path.exists(path):
+                self.open_video(vid, path, fps_of[vid])
+                return
+        self.statusBar().showMessage("No more unmarked videos", 4000)
 
     def delete_key(self):
         """The Delete key only deletes while the table has focus (so it can't fire by accident)."""

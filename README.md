@@ -327,6 +327,7 @@ These are the defaults; every one can be changed (see *Changing the keys* below)
 | `,` / `.` | Move the selected gate mark one frame earlier / later (or the gate the video is parked on); undoable, and the video follows to show the new frame |
 | Ctrl + Z / Ctrl + Y | Undo / redo the last mark change (adding, moving or deleting a gate, or a bad-lap flag); also in the **Edit** menu, which names what it would undo |
 | Delete | Delete the selected mark (when the table has focus) |
+| A | Open the next video in the library list that has no marks yet (follows the current filter and sort; stops at the end of the list) |
 
 Audio is muted by default (checkbox under the video).
 
